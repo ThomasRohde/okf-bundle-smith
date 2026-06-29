@@ -20,13 +20,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Public GitHub `homepage` and `repository` metadata in the plugin manifest.
 
 ### Changed
+- Redesigned the HTML visualizer to a light "Paper" theme with two modes: a
+  force-directed **Graph** (degree-sized nodes, pan/zoom, minimap, hover cards,
+  concept inspector) and a new **Overview** dashboard (type distribution,
+  most-connected concepts, tag vocabulary, connectivity health). Node colors come
+  from the server-provided `meta.type_colors`, so any bundle's types are covered.
+- The viewer is now dependency-free at runtime: it ships its own canvas graph
+  renderer and Markdown parser instead of loading Cytoscape.js and marked.js from
+  a CDN, so the graph and bundle data render offline (only web fonts are remote).
 - GitHub Actions now validates the nested plugin path and all sample bundles,
   including `examples/okf`.
 
 ### Fixed
-- The HTML visualizer sanitizes rendered Markdown before injecting it into the
-  detail panel and only renders `resource` as a clickable link for safe URL
-  schemes.
+- The HTML visualizer HTML-escapes all rendered concept text, restricts in-body
+  links to a URL-scheme allowlist, and only renders `resource` as a clickable
+  link for safe URL schemes.
 - Generated `viz.html` files are ignored as build artifacts.
 
 ## [0.3.0] - 2026-06-29

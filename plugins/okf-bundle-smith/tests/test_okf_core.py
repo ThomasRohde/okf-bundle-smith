@@ -210,19 +210,26 @@ class OkfCoreTests(unittest.TestCase):
             self.assertIn("First change", text)
             self.assertIn("Second change", text)
 
-    def test_build_visualization_embeds_data_and_cdn(self) -> None:
+    def test_build_visualization_embeds_data_safely(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            write_concept(root / "a.md", title="Alpha Concept")
+            path = root / "a.md"
+            write_concept(path, title="Alpha Concept")
+            # A script-close sequence in the body must not break out of the data block.
+            path.write_text(
+                path.read_text(encoding="utf-8") + "\nDanger </script> text.\n",
+                encoding="utf-8",
+            )
 
             html = build_visualization(root)
 
-            self.assertIn("cytoscape", html)
-            self.assertIn("marked", html)
-            self.assertIn("const DATA =", html)
+            self.assertIn("window.OKF_DATA", html)
+            self.assertIn("class OKFViewer", html)
             self.assertIn("Alpha Concept", html)
-            self.assertIn("sanitizeHtml(marked.parse", html)
-            self.assertIn("function safeExternalHref", html)
+            # Body content is neutralized so it cannot terminate the inline <script>.
+            self.assertIn("<\\/script>", html)
+            # Resource links pass through a protocol allowlist before rendering.
+            self.assertIn("safeUrl", html)
 
 
 if __name__ == "__main__":

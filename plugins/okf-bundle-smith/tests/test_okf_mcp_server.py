@@ -26,6 +26,15 @@ class OkfMcpServerTests(unittest.TestCase):
             "okf_visualize",
             "okf_add_log_entry",
             "okf_package_bundle",
+            "okf_attach_github_bundle",
+            "okf_list_attached_bundles",
+            "okf_refresh_bundle",
+            "okf_search_concepts",
+            "okf_read_concept",
+            "okf_related_concepts",
+            "okf_prepare_answer_context",
+            "okf_freshness_report",
+            "okf_generate_chatgpt_usage",
         ):
             self.assertIn(expected, tools)
 
@@ -65,6 +74,18 @@ class OkfMcpServerTests(unittest.TestCase):
             })
             self.assertIn("visualization", visualize["result"]["content"][0]["text"])  # type: ignore[index]
             self.assertTrue(Path(viz_out).is_file())
+
+            search = handle({
+                "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                "params": {"name": "okf_search_concepts", "arguments": {"bundle": bundle, "query": "Demo"}},
+            })
+            self.assertIn("results", search["result"]["content"][0]["text"])  # type: ignore[index]
+
+            context = handle({
+                "jsonrpc": "2.0", "id": 5, "method": "tools/call",
+                "params": {"name": "okf_prepare_answer_context", "arguments": {"bundle": bundle, "question": "What is this?"}},
+            })
+            self.assertIn("answer_instructions", context["result"]["content"][0]["text"])  # type: ignore[index]
 
 
 if __name__ == "__main__":

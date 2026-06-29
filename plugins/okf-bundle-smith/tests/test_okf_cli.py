@@ -42,6 +42,13 @@ class OkfCliTests(unittest.TestCase):
             self.assertEqual(0, run("package", bundle, pkg_out))
             self.assertTrue(Path(pkg_out).is_file())
 
+            self.assertEqual(0, run("search", bundle, "Demo Bundle"))
+            self.assertEqual(0, run("read", bundle, "concepts/demo-bundle", "--neighbors"))
+            self.assertEqual(0, run("related", bundle, "concepts/demo-bundle"))
+            self.assertEqual(0, run("context", bundle, "What is this bundle?", "--mode", "strict"))
+            self.assertEqual(0, run("freshness", bundle))
+            self.assertEqual(0, run("generate-chatgpt-usage", bundle, "--repo", "acme/demo"))
+
     def test_lint_strict_returns_nonzero_on_warnings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

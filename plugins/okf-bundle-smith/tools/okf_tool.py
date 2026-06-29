@@ -18,6 +18,22 @@ from okf_core import (
     stats_markdown,
     write_visualization,
 )
+from okf_consume import (
+    attach_github_url,
+    bundle_context,
+    bundle_freshness,
+    chatgpt_usage,
+    detach_bundle,
+    list_attached_bundles,
+    read_bundle_concept,
+    refresh_bundle,
+    related_bundle_concepts,
+    search_bundle,
+)
+
+
+def print_json(payload: dict | list) -> None:
+    print(json.dumps(payload, indent=2, ensure_ascii=False, default=str))
 
 
 def cmd_lint(args: argparse.Namespace) -> int:
@@ -91,6 +107,80 @@ def cmd_new(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_attach_github(args: argparse.Namespace) -> int:
+    payload = attach_github_url(
+        args.url,
+        alias=args.alias,
+        ref=args.ref,
+        path=args.path,
+        persist_project=args.persist_project,
+        refresh=args.refresh,
+    )
+    print_json(payload)
+    return 0
+
+
+def cmd_list_attached(args: argparse.Namespace) -> int:
+    print_json(list_attached_bundles(scope=args.scope))
+    return 0
+
+
+def cmd_refresh(args: argparse.Namespace) -> int:
+    print_json(refresh_bundle(args.alias))
+    return 0
+
+
+def cmd_detach(args: argparse.Namespace) -> int:
+    print_json(detach_bundle(args.alias, project=args.project))
+    return 0
+
+
+def cmd_search(args: argparse.Namespace) -> int:
+    filters = {"type": args.type, "tags": args.tag or []}
+    print_json(search_bundle(args.bundle, args.query, filters=filters, max_results=args.max_results))
+    return 0
+
+
+def cmd_read(args: argparse.Namespace) -> int:
+    print_json(read_bundle_concept(args.bundle, args.concept_id, include_neighbors=args.neighbors))
+    return 0
+
+
+def cmd_related(args: argparse.Namespace) -> int:
+    print_json(related_bundle_concepts(args.bundle, args.concept_id, depth=args.depth, max_results=args.max_results))
+    return 0
+
+
+def cmd_context(args: argparse.Namespace) -> int:
+    options = {
+        "mode": args.mode,
+        "max_concepts": args.max_concepts,
+        "link_depth": args.link_depth,
+        "max_chars_per_concept": args.max_chars_per_concept,
+        "include_index": not args.no_index,
+        "include_log": not args.no_log,
+    }
+    print_json(bundle_context(args.bundle, args.question, options=options))
+    return 0
+
+
+def cmd_freshness(args: argparse.Namespace) -> int:
+    print_json(bundle_freshness(args.bundle))
+    return 0
+
+
+def cmd_generate_chatgpt_usage(args: argparse.Namespace) -> int:
+    options = {
+        "repo_name": args.repo,
+        "repo_root": args.repo_root,
+        "write_files": args.write,
+        "include_llms_txt": not args.no_llms_txt,
+        "include_registry": not args.no_registry,
+    }
+    print_json(chatgpt_usage(args.bundle_path, options=options))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="OKF bundle helper tools")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -142,6 +232,73 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed-title", help="Title for the initial concept; defaults to --title")
     p.add_argument("--overwrite", action="store_true", help="Allow scaffolding into a non-empty directory")
     p.set_defaults(func=cmd_new)
+
+    p = sub.add_parser("attach-github", help="Attach and index a GitHub-hosted OKF bundle")
+    p.add_argument("url")
+    p.add_argument("--alias")
+    p.add_argument("--ref")
+    p.add_argument("--path")
+    p.add_argument("--persist-project", action="store_true")
+    p.add_argument("--refresh", action="store_true")
+    p.set_defaults(func=cmd_attach_github)
+
+    p = sub.add_parser("list-attached", help="List attached OKF bundles")
+    p.add_argument("--scope", choices=["all", "plugin", "project"], default="all")
+    p.set_defaults(func=cmd_list_attached)
+
+    p = sub.add_parser("refresh", help="Refresh an attached GitHub OKF bundle")
+    p.add_argument("alias")
+    p.set_defaults(func=cmd_refresh)
+
+    p = sub.add_parser("detach", help="Detach an OKF bundle alias")
+    p.add_argument("alias")
+    p.add_argument("--project", action="store_true", help="Also remove the project-local attachment")
+    p.set_defaults(func=cmd_detach)
+
+    p = sub.add_parser("search", help="Search concepts in an attached or local OKF bundle")
+    p.add_argument("bundle", help="Attached alias or local bundle path")
+    p.add_argument("query")
+    p.add_argument("--type")
+    p.add_argument("--tag", action="append", help="Require a tag; can be repeated")
+    p.add_argument("--max-results", type=int, default=10)
+    p.set_defaults(func=cmd_search)
+
+    p = sub.add_parser("read", help="Read one concept by concept ID or path")
+    p.add_argument("bundle", help="Attached alias or local bundle path")
+    p.add_argument("concept_id")
+    p.add_argument("--neighbors", action="store_true")
+    p.set_defaults(func=cmd_read)
+
+    p = sub.add_parser("related", help="Return neighboring concepts by links and directory proximity")
+    p.add_argument("bundle", help="Attached alias or local bundle path")
+    p.add_argument("concept_id")
+    p.add_argument("--depth", type=int, default=1)
+    p.add_argument("--max-results", type=int, default=20)
+    p.set_defaults(func=cmd_related)
+
+    p = sub.add_parser("context", help="Prepare a compact answer context pack")
+    p.add_argument("bundle", help="Attached alias or local bundle path")
+    p.add_argument("question")
+    p.add_argument("--mode", choices=["strict", "hybrid"], default="strict")
+    p.add_argument("--max-concepts", type=int, default=8)
+    p.add_argument("--link-depth", type=int, default=1)
+    p.add_argument("--max-chars-per-concept", type=int, default=4000)
+    p.add_argument("--no-index", action="store_true")
+    p.add_argument("--no-log", action="store_true")
+    p.set_defaults(func=cmd_context)
+
+    p = sub.add_parser("freshness", help="Report OKF bundle freshness")
+    p.add_argument("bundle", help="Attached alias or local bundle path")
+    p.set_defaults(func=cmd_freshness)
+
+    p = sub.add_parser("generate-chatgpt-usage", help="Generate ChatGPT-friendly OKF usage files")
+    p.add_argument("bundle_path")
+    p.add_argument("--repo")
+    p.add_argument("--repo-root")
+    p.add_argument("--write", action="store_true")
+    p.add_argument("--no-llms-txt", action="store_true")
+    p.add_argument("--no-registry", action="store_true")
+    p.set_defaults(func=cmd_generate_chatgpt_usage)
 
     return parser
 

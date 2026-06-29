@@ -1,7 +1,7 @@
 {
   "name": "okf-bundle-smith",
   "version": "0.4.0",
-  "description": "Create, enrich, validate, repair, visualize, and package Open Knowledge Format bundles from web, repository, and enterprise sources.",
+  "description": "Create, enrich, validate, repair, consume, visualize, and package Open Knowledge Format bundles from web, repository, GitHub, and enterprise sources.",
   "author": {
     "name": "OKF Bundle Smith maintainers"
   },
@@ -21,8 +21,8 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "OKF Bundle Smith",
-    "shortDescription": "Build, validate, and package OKF bundles.",
-    "longDescription": "A Codex plugin for producing Open Knowledge Format bundles with disciplined source research, concept design, frontmatter hygiene, citations, indexes, update logs, validation, graph export, and packaging.",
+    "shortDescription": "Build, validate, consume, and package OKF bundles.",
+    "longDescription": "A Codex plugin for producing and consuming Open Knowledge Format bundles with disciplined source research, concept design, frontmatter hygiene, citations, indexes, update logs, validation, graph export, GitHub attachment, retrieval, context packing, and packaging.",
     "developerName": "OKF Bundle Smith maintainers",
     "category": "Productivity",
     "capabilities": ["Read", "Write", "Interactive"],
@@ -32,7 +32,8 @@
     "defaultPrompt": [
       "Create an OKF bundle from authoritative sources.",
       "Review and repair this OKF bundle.",
-      "Update this OKF bundle and add a log entry."
+      "Update this OKF bundle and add a log entry.",
+      "Attach this GitHub-hosted OKF bundle and answer from it with citations."
     ]
   }
 }

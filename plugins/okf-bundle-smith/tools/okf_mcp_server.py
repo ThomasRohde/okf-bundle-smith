@@ -31,6 +31,17 @@ from okf_core import (  # noqa: E402
     stats_markdown,
     write_visualization,
 )
+from okf_consume import (  # noqa: E402
+    attach_github_url,
+    bundle_context,
+    bundle_freshness,
+    chatgpt_usage,
+    list_attached_bundles,
+    read_bundle_concept,
+    refresh_bundle,
+    related_bundle_concepts,
+    search_bundle,
+)
 
 
 def _write(message: dict) -> None:
@@ -40,6 +51,10 @@ def _write(message: dict) -> None:
 
 def _text_result(text: str) -> dict:
     return {"content": [{"type": "text", "text": text}]}
+
+
+def _json_result(payload: dict | list) -> dict:
+    return _text_result(json.dumps(payload, indent=2, ensure_ascii=False, default=str))
 
 
 def _tool_schema() -> list[dict]:
@@ -107,7 +122,7 @@ def _tool_schema() -> list[dict]:
         },
         {
             "name": "okf_visualize",
-            "description": "Render a self-contained interactive HTML graph of an OKF bundle (Cytoscape.js viewer).",
+            "description": "Render a self-contained interactive HTML viewer for an OKF bundle (force-directed Graph plus an Overview dashboard; no runtime dependencies).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -142,6 +157,124 @@ def _tool_schema() -> list[dict]:
                     "format": {"type": "string", "enum": ["zip", "tar", "tar.gz", "tgz"], "default": "zip"}
                 },
                 "required": ["bundle_path", "output_path"]
+            }
+        },
+        {
+            "name": "okf_attach_github_bundle",
+            "description": "Attach, validate, and index a GitHub-hosted OKF bundle.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"},
+                    "alias": {"type": "string"},
+                    "ref": {"type": "string"},
+                    "path": {"type": "string"},
+                    "persist_project": {"type": "boolean", "default": False},
+                    "refresh": {"type": "boolean", "default": False}
+                },
+                "required": ["url"]
+            }
+        },
+        {
+            "name": "okf_list_attached_bundles",
+            "description": "List OKF bundles attached in plugin state and project state.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "scope": {"type": "string", "enum": ["all", "plugin", "project"], "default": "all"}
+                }
+            }
+        },
+        {
+            "name": "okf_refresh_bundle",
+            "description": "Refresh an attached GitHub OKF bundle and rebuild its index.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"alias": {"type": "string"}},
+                "required": ["alias"]
+            }
+        },
+        {
+            "name": "okf_search_concepts",
+            "description": "Search concepts in an attached alias or local OKF bundle path.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bundle": {"type": "string"},
+                    "query": {"type": "string"},
+                    "type": {"type": "string"},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                    "max_results": {"type": "integer", "default": 10}
+                },
+                "required": ["bundle", "query"]
+            }
+        },
+        {
+            "name": "okf_read_concept",
+            "description": "Read one OKF concept by concept ID or path.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bundle": {"type": "string"},
+                    "concept_id": {"type": "string"},
+                    "include_neighbors": {"type": "boolean", "default": False}
+                },
+                "required": ["bundle", "concept_id"]
+            }
+        },
+        {
+            "name": "okf_related_concepts",
+            "description": "Return related concepts using Markdown links and directory proximity.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bundle": {"type": "string"},
+                    "concept_id": {"type": "string"},
+                    "depth": {"type": "integer", "default": 1},
+                    "max_results": {"type": "integer", "default": 20}
+                },
+                "required": ["bundle", "concept_id"]
+            }
+        },
+        {
+            "name": "okf_prepare_answer_context",
+            "description": "Prepare a compact OKF context pack for a bundle-grounded answer.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bundle": {"type": "string"},
+                    "question": {"type": "string"},
+                    "mode": {"type": "string", "enum": ["strict", "hybrid"], "default": "strict"},
+                    "max_concepts": {"type": "integer", "default": 8},
+                    "link_depth": {"type": "integer", "default": 1},
+                    "max_chars_per_concept": {"type": "integer", "default": 4000}
+                },
+                "required": ["bundle", "question"]
+            }
+        },
+        {
+            "name": "okf_freshness_report",
+            "description": "Report freshness and potential staleness for an OKF bundle.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"bundle": {"type": "string"}},
+                "required": ["bundle"]
+            }
+        },
+        {
+            "name": "okf_generate_chatgpt_usage",
+            "description": "Generate ChatGPT-friendly usage instructions and optional helper files for an OKF bundle.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bundle_path": {"type": "string"},
+                    "repo_name": {"type": "string"},
+                    "repo_root": {"type": "string"},
+                    "write_files": {"type": "boolean", "default": False},
+                    "include_llms_txt": {"type": "boolean", "default": True},
+                    "include_registry": {"type": "boolean", "default": True}
+                },
+                "required": ["bundle_path"]
             }
         }
     ]
@@ -194,6 +327,66 @@ def _call_tool(name: str, arguments: dict) -> dict:
     if name == "okf_package_bundle":
         out = package_bundle(arguments["bundle_path"], arguments["output_path"], fmt=arguments.get("format", "zip"))
         return _text_result(f"Packaged OKF bundle: {out}")
+
+    if name == "okf_attach_github_bundle":
+        return _json_result(attach_github_url(
+            arguments["url"],
+            alias=arguments.get("alias"),
+            ref=arguments.get("ref"),
+            path=arguments.get("path"),
+            persist_project=bool(arguments.get("persist_project", False)),
+            refresh=bool(arguments.get("refresh", False)),
+        ))
+
+    if name == "okf_list_attached_bundles":
+        return _json_result(list_attached_bundles(scope=arguments.get("scope", "all")))
+
+    if name == "okf_refresh_bundle":
+        return _json_result(refresh_bundle(arguments["alias"]))
+
+    if name == "okf_search_concepts":
+        filters = {"type": arguments.get("type"), "tags": arguments.get("tags") or []}
+        return _json_result(search_bundle(
+            arguments["bundle"],
+            arguments["query"],
+            filters=filters,
+            max_results=int(arguments.get("max_results", 10)),
+        ))
+
+    if name == "okf_read_concept":
+        return _json_result(read_bundle_concept(
+            arguments["bundle"],
+            arguments["concept_id"],
+            include_neighbors=bool(arguments.get("include_neighbors", False)),
+        ))
+
+    if name == "okf_related_concepts":
+        return _json_result(related_bundle_concepts(
+            arguments["bundle"],
+            arguments["concept_id"],
+            depth=int(arguments.get("depth", 1)),
+            max_results=int(arguments.get("max_results", 20)),
+        ))
+
+    if name == "okf_prepare_answer_context":
+        return _json_result(bundle_context(arguments["bundle"], arguments["question"], options={
+            "mode": arguments.get("mode", "strict"),
+            "max_concepts": int(arguments.get("max_concepts", 8)),
+            "link_depth": int(arguments.get("link_depth", 1)),
+            "max_chars_per_concept": int(arguments.get("max_chars_per_concept", 4000)),
+        }))
+
+    if name == "okf_freshness_report":
+        return _json_result(bundle_freshness(arguments["bundle"]))
+
+    if name == "okf_generate_chatgpt_usage":
+        return _json_result(chatgpt_usage(arguments["bundle_path"], options={
+            "repo_name": arguments.get("repo_name"),
+            "repo_root": arguments.get("repo_root"),
+            "write_files": bool(arguments.get("write_files", False)),
+            "include_llms_txt": bool(arguments.get("include_llms_txt", True)),
+            "include_registry": bool(arguments.get("include_registry", True)),
+        }))
 
     raise ValueError(f"Unknown tool: {name}")
 

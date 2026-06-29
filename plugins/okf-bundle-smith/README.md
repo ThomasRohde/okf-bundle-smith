@@ -18,9 +18,9 @@ The plugin is built around one practical idea: OKF is easy to write syntacticall
 |---|---|
 | Plugin manifest | `.codex-plugin/plugin.json` with skills, MCP server wiring, brand assets, and per-skill Codex metadata |
 | Skills | Bundle architecture, web research, concept authoring, review/repair, update, and data-catalog workflows |
-| MCP tools | Scaffold, validate, stats, generate indexes, export graph JSON, visualize (HTML), add log entries, package bundles |
-| CLI tools | Dependency-light Python commands for local use outside Codex |
-| Visualizer | Self-contained interactive HTML graph viewer (Cytoscape.js + marked.js) |
+| MCP tools | Scaffold, validate, stats, generate indexes, export graph JSON, visualize (HTML), add log entries, package bundles, attach GitHub bundles, search/read/related/context/freshness |
+| CLI tools | Dependency-light Python commands for local use outside Codex, including producer and consumer workflows |
+| Visualizer | Self-contained interactive HTML viewer: force-directed Graph + Overview dashboard, dependency-free (canvas renderer + built-in Markdown) |
 | References | OKF cheat sheet, conformance map, concept-type catalog, source policy, quality rubric, subagent playbook |
 | Examples | `minimal-bundle` and a realistic `acme-sales-catalog` data-catalog bundle (also used as test fixtures) |
 | Optional hooks | Local hook scripts kept under `hooks/`, not declared in the plugin manifest |
@@ -123,7 +123,7 @@ Export a graph:
 python tools\okf_tool.py graph examples\acme-sales-catalog --output .\tmp\okf-graph.json
 ```
 
-Render the interactive HTML viewer (opens in a browser; needs internet for the CDN libraries):
+Render the interactive HTML viewer (opens in a browser; works offline — only web fonts load from a CDN):
 
 ```powershell
 python tools\okf_tool.py visualize examples\acme-sales-catalog -o .\tmp\acme-sales-catalog-viz.html
@@ -141,6 +141,38 @@ Package a bundle:
 python tools\okf_tool.py package examples\minimal-bundle .\tmp\minimal-okf-bundle.zip
 ```
 
+## Consume An OKF Bundle
+
+Search a local bundle:
+
+```powershell
+python tools\okf_tool.py search examples\acme-sales-catalog "gross revenue"
+```
+
+Read a concept with neighbors:
+
+```powershell
+python tools\okf_tool.py read examples\acme-sales-catalog metrics/gross-revenue --neighbors
+```
+
+Prepare a strict answer context pack:
+
+```powershell
+python tools\okf_tool.py context examples\acme-sales-catalog "Which tables feed gross revenue?" --mode strict
+```
+
+Attach a GitHub-hosted bundle:
+
+```powershell
+python tools\okf_tool.py attach-github https://github.com/acme/okf-knowledge/tree/main/bundles/payments-architecture --alias payments
+```
+
+Generate ChatGPT usage instructions:
+
+```powershell
+python tools\okf_tool.py generate-chatgpt-usage examples\acme-sales-catalog --repo acme/okf-knowledge --write
+```
+
 ## MCP Tools
 
 The bundled `okf-tools` MCP server is declared in `.mcp.json` and exposes:
@@ -153,11 +185,20 @@ The bundled `okf-tools` MCP server is declared in `.mcp.json` and exposes:
 - `okf_visualize`
 - `okf_add_log_entry`
 - `okf_package_bundle`
+- `okf_attach_github_bundle`
+- `okf_list_attached_bundles`
+- `okf_refresh_bundle`
+- `okf_search_concepts`
+- `okf_read_concept`
+- `okf_related_concepts`
+- `okf_prepare_answer_context`
+- `okf_freshness_report`
+- `okf_generate_chatgpt_usage`
 
 Every MCP tool has a matching `tools/okf_tool.py` subcommand, so the same
 behavior is available inside Codex and on the command line.
 
-The server is dependency-light and communicates over stdio JSON-RPC. It is intended for local bundle work and does not perform authentication, remote retrieval, source caching, or enterprise policy checks.
+The server is dependency-light and communicates over stdio JSON-RPC. GitHub bundle attachment shells out to `git` and uses the user's existing credentials; the plugin does not collect or store credentials.
 
 If your Codex client does not resolve plugin-relative MCP command paths, replace the `.mcp.json` server args with an absolute path to `tools/okf_mcp_server.py`.
 
@@ -200,6 +241,9 @@ A good OKF bundle should have:
 - [ARCHITECTURE.md](ARCHITECTURE.md) - components, engine entry points, and design decisions.
 - [CONTRIBUTING.md](CONTRIBUTING.md) - dev workflow and the CLI/MCP parity rule.
 - [CHANGELOG.md](CHANGELOG.md) - release history.
+- [references/okf-consumption-contract.md](references/okf-consumption-contract.md) - strict and hybrid bundle-grounded answer rules.
+- [references/github-bundle-url-syntax.md](references/github-bundle-url-syntax.md) - supported GitHub URL forms and ref/path resolution.
+- [references/chatgpt-okf-usage-template.md](references/chatgpt-okf-usage-template.md) - ChatGPT helper-file template and usage guidance.
 - [references/okf-v0.1-conformance.md](references/okf-v0.1-conformance.md) - what the validator treats as an error versus a quality warning.
 - [references/concept-type-catalog.md](references/concept-type-catalog.md) - recommended concept types.
 
@@ -207,5 +251,6 @@ A good OKF bundle should have:
 
 - The validator is intentionally lightweight. It checks OKF v0.1 basics and practical quality rules, not every YAML edge case.
 - Citation quality still requires human or model judgment. The validator can detect missing citation sections, but it cannot prove every claim is supported.
-- The MCP server is local and dependency-free. Replace or wrap it for authenticated enterprise search, source retrieval, caching, or richer provenance.
-- The HTML visualizer loads Cytoscape.js and marked.js from a CDN, so the generated file needs internet access to render. The bundle data itself is embedded in the file.
+- GitHub consumer mode uses local `git` and existing credentials. Private repository access must be configured outside the plugin.
+- Consumer search is lexical and deterministic. Vector search is intentionally out of scope for the MVP.
+- The HTML visualizer is dependency-free at runtime: it ships its own canvas graph renderer and Markdown parser, so the graph and bundle data render offline. Only web fonts are loaded from a CDN (the layout degrades gracefully without them). The bundle data is embedded in the file.

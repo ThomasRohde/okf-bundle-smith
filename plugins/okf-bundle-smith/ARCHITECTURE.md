@@ -75,13 +75,20 @@ resolved relative to the bundle root (absolute `/...`) or the source file
 
 ## Visualizer
 
-`build_visualization` renders a single HTML file with the bundle graph and each
-concept's body embedded as JSON. It loads Cytoscape.js (graph) and marked.js
-(Markdown) from a CDN, so the generated file needs internet access to render but
-requires no build step. Rendered Markdown is sanitized before injection into the
-detail panel. Nodes are colored by `type`; the panel shows frontmatter, rendered
-body, outgoing links, and backlinks, and in-body concept links are clickable for
-graph traversal.
+`build_visualization` renders a single self-contained HTML file with the bundle
+graph and each concept's body embedded as JSON. The viewer is dependency-free at
+runtime: a compact canvas renderer draws a force-directed graph (pan, zoom,
+minimap, hover cards) and a built-in Markdown parser renders concept bodies — no
+graph or Markdown library is loaded. Only web fonts come from a CDN, so the graph
+and data render offline. All concept text is HTML-escaped, in-body links use a
+URL-scheme allowlist, and `resource` links are validated, before rendering.
+
+The viewer has two modes: a **Graph** with a concept inspector (frontmatter,
+links to / linked from, rendered body, clickable in-body concept links), and an
+**Overview** dashboard (type distribution, most-connected concepts, tag
+vocabulary, connectivity health). Nodes are sized by degree and colored by `type`
+via the server-provided `meta.type_colors`, so any bundle's types get stable
+colors.
 
 ## MCP server
 

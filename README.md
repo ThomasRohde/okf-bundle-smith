@@ -1,3 +1,11 @@
+---
+type: System
+title: OKF Bundle Smith Marketplace
+description: Repository marketplace entry point for installing and developing the OKF Bundle Smith Codex plugin.
+tags: [okf, codex-plugin, marketplace]
+timestamp: 2026-06-29
+---
+
 # OKF Bundle Smith Marketplace
 
 This repository is a Codex plugin marketplace for **OKF Bundle Smith**, a plugin for creating, validating, visualizing, and packaging Open Knowledge Format bundles.
