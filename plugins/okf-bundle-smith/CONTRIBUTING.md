@@ -19,6 +19,8 @@ changes and a dependency-light core.
 
 ## Local workflow
 
+Run these commands from `plugins/okf-bundle-smith` unless noted otherwise.
+
 ```powershell
 # Run the test suite
 python -m unittest discover -s tests -v
@@ -26,10 +28,14 @@ python -m unittest discover -s tests -v
 # Validate the plugin manifest and skills
 python C:\Users\thoma\.codex\skills\.system\plugin-creator\scripts\validate_plugin.py .
 
+# From the repository root, validate marketplace wiring
+python scripts\check_marketplace.py
+
 # Exercise the CLI against the sample bundle
 python tools\okf_tool.py lint examples\acme-sales-catalog --strict
+python tools\okf_tool.py lint examples\okf --strict
 python tools\okf_tool.py stats examples\acme-sales-catalog
-python tools\okf_tool.py visualize examples\acme-sales-catalog -o examples\acme-sales-catalog\viz.html
+python tools\okf_tool.py visualize examples\acme-sales-catalog -o .\tmp\viz.html
 ```
 
 On macOS/Linux, use forward slashes and `python3` as appropriate.
@@ -51,6 +57,8 @@ On macOS/Linux, use forward slashes and `python3` as appropriate.
   quote any value containing a colon.
 * **Sample bundles double as fixtures.** `examples/` must always pass
   `lint --strict`.
+* **Generated viewer files are build artifacts.** Do not commit `viz.html`;
+  regenerate it locally or in CI.
 
 ## Adding a skill
 
@@ -66,6 +74,9 @@ Run the plugin validator after adding or editing a skill.
 
 * [ ] `python -m unittest discover -s tests` passes.
 * [ ] The plugin validator passes.
+* [ ] From the repository root, `python scripts/check_marketplace.py` passes.
 * [ ] `examples/` bundles pass `lint --strict`.
+* [ ] The marketplace manifest at the repository root still points at
+      `./plugins/okf-bundle-smith`.
 * [ ] CLI and MCP stay in parity for any new capability.
 * [ ] `CHANGELOG.md` updated.

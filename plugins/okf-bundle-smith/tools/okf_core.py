@@ -910,8 +910,15 @@ function renderDetail(node) {
   const linkList = (ids) => ids.length
     ? "<ul>" + ids.map(id => '<li><a data-goto="' + escapeHtml(id) + '">' + escapeHtml((byId.get(id) || {}).label || id) + "</a></li>").join("") + "</ul>"
     : '<p class="empty">None.</p>';
-  const resource = n.resource ? '<p class="resource">Resource: <a href="' + escapeHtml(n.resource) + '" target="_blank" rel="noopener">' + escapeHtml(n.resource) + "</a></p>" : "";
-  const bodyHtml = (typeof marked !== "undefined") ? marked.parse(n.body || "") : "<pre>" + escapeHtml(n.body || "") + "</pre>";
+  const safeResource = safeExternalHref(n.resource);
+  const resource = n.resource
+    ? '<p class="resource">Resource: ' + (safeResource
+      ? '<a href="' + escapeHtml(safeResource) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(n.resource) + "</a>"
+      : escapeHtml(n.resource)) + "</p>"
+    : "";
+  const bodyHtml = (typeof marked !== "undefined")
+    ? sanitizeHtml(marked.parse(n.body || ""))
+    : "<pre>" + escapeHtml(n.body || "") + "</pre>";
   document.getElementById("detail").innerHTML =
     '<h2>' + escapeHtml(n.label) + "</h2>" +
     '<span class="pill type" style="background:' + n.color + '">' + escapeHtml(n.type) + "</span>" + tagPills +
@@ -940,6 +947,60 @@ function selectNode(id) {
 
 function escapeHtml(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function hasScheme(value) {
+  return /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(String(value || "").trim());
+}
+
+function isSafeUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw.startsWith("#")) return true;
+  if (!hasScheme(raw)) return true;
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" || parsed.protocol === "mailto:";
+  } catch {
+    return false;
+  }
+}
+
+function safeExternalHref(value) {
+  const raw = String(value || "").trim();
+  if (!raw || !hasScheme(raw)) return "";
+  try {
+    const parsed = new URL(raw);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:" || parsed.protocol === "mailto:") ? raw : "";
+  } catch {
+    return "";
+  }
+}
+
+function sanitizeHtml(html) {
+  const template = document.createElement("template");
+  template.innerHTML = String(html || "");
+  const blocked = new Set(["SCRIPT", "STYLE", "IFRAME", "OBJECT", "EMBED", "LINK", "META", "BASE", "FORM", "INPUT", "BUTTON", "TEXTAREA", "SELECT", "SVG", "MATH"]);
+  template.content.querySelectorAll("*").forEach(el => {
+    if (blocked.has(el.tagName)) {
+      el.remove();
+      return;
+    }
+    [...el.attributes].forEach(attr => {
+      const name = attr.name.toLowerCase();
+      const value = attr.value || "";
+      if (name.startsWith("on") || name === "style" || name === "srcdoc") {
+        el.removeAttribute(attr.name);
+        return;
+      }
+      if (["href", "src", "xlink:href", "action", "formaction"].includes(name) && !isSafeUrl(value)) {
+        el.removeAttribute(attr.name);
+      }
+    });
+    if (el.tagName === "A") {
+      el.setAttribute("rel", "noopener noreferrer");
+    }
+  });
+  return template.innerHTML;
 }
 
 function applyFilters() {

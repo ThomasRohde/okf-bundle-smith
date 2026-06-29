@@ -1,10 +1,12 @@
 {
   "name": "okf-bundle-smith",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Create, enrich, validate, repair, visualize, and package Open Knowledge Format bundles from web, repository, and enterprise sources.",
   "author": {
     "name": "OKF Bundle Smith maintainers"
   },
+  "homepage": "https://github.com/ThomasRohde/okf-bundle-smith/tree/master/plugins/okf-bundle-smith",
+  "repository": "https://github.com/ThomasRohde/okf-bundle-smith",
   "license": "MIT",
   "keywords": [
     "okf",

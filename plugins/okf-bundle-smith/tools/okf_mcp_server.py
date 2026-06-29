@@ -209,7 +209,7 @@ def handle(request: dict) -> dict | None:
         result = {
             "protocolVersion": "2024-11-05",
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "okf-bundle-smith", "version": "0.3.0"}
+            "serverInfo": {"name": "okf-bundle-smith", "version": "0.4.0"}
         }
     elif method == "tools/list":
         result = {"tools": _tool_schema()}

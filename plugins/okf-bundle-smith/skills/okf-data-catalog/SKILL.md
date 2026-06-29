@@ -106,7 +106,7 @@ canonical URI exists.
 * Foreign keys are expressed as links, not prose.
 * Every metric has a formula and named source tables.
 * Run `python tools/okf_tool.py lint <catalog>` and
-  `python tools/okf_tool.py visualize <catalog> -o <catalog>/viz.html` before
+  `python tools/okf_tool.py visualize <catalog> -o <artifact-dir>/viz.html` before
   handoff so reviewers can see the join graph.
 
 ## Completion report

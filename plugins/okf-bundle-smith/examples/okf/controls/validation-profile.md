@@ -30,7 +30,7 @@ file handling, duplicate titles, and orphan concepts.
 
 A clean validation run should report zero errors and only intentional warnings.
 For this example bundle, validation is performed with `python tools/okf_tool.py
-lint examples/okf` from the repository root.
+lint examples/okf` from the plugin root.
 
 # Citations
 

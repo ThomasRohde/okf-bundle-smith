@@ -12,6 +12,23 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-06-29
+
+### Added
+- Marketplace repository layout with `.agents/plugins/marketplace.json` and the
+  plugin nested under `plugins/okf-bundle-smith`.
+- Public GitHub `homepage` and `repository` metadata in the plugin manifest.
+
+### Changed
+- GitHub Actions now validates the nested plugin path and all sample bundles,
+  including `examples/okf`.
+
+### Fixed
+- The HTML visualizer sanitizes rendered Markdown before injecting it into the
+  detail panel and only renders `resource` as a clickable link for safe URL
+  schemes.
+- Generated `viz.html` files are ignored as build artifacts.
+
 ## [0.3.0] - 2026-06-29
 
 ### Added

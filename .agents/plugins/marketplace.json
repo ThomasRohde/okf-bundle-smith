@@ -1,0 +1,20 @@
+{
+  "name": "okf-bundle-smith",
+  "interface": {
+    "displayName": "OKF Bundle Smith"
+  },
+  "plugins": [
+    {
+      "name": "okf-bundle-smith",
+      "source": {
+        "source": "local",
+        "path": "./plugins/okf-bundle-smith"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

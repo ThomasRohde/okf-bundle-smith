@@ -221,6 +221,8 @@ class OkfCoreTests(unittest.TestCase):
             self.assertIn("marked", html)
             self.assertIn("const DATA =", html)
             self.assertIn("Alpha Concept", html)
+            self.assertIn("sanitizeHtml(marked.parse", html)
+            self.assertIn("function safeExternalHref", html)
 
 
 if __name__ == "__main__":

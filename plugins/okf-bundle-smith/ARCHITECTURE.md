@@ -29,18 +29,22 @@ Format (OKF) bundles. It is organized so that **judgment lives in skills** and
 ## Components
 
 ```
-.codex-plugin/plugin.json   Plugin manifest (skills, MCP wiring, interface)
-.mcp.json                   MCP server declaration (okf-tools, stdio)
-assets/logo.svg             Brand asset referenced by the manifest
-skills/                     Model-facing guidance (the "how to do it well")
-tools/okf_core.py           Engine: parse, scan/validate, index, graph, stats, visualize, package
-tools/okf_tool.py           CLI front end over the engine
-tools/okf_mcp_server.py     Minimal stdio JSON-RPC MCP server over the engine
-hooks/                      Optional session-context and stop-review hooks
-references/                 Cheat sheet, conformance map, type catalog, rubric, policies
-examples/                   Sample bundles (also used as test fixtures)
-tests/                      Stdlib unittest coverage
-.github/workflows/ci.yml    Tests + example-bundle validation
+Repository root:
+.agents/plugins/marketplace.json   Codex marketplace entry for okf-bundle-smith
+.github/workflows/ci.yml           Tests + example-bundle validation
+
+Plugin root (`plugins/okf-bundle-smith`):
+.codex-plugin/plugin.json          Plugin manifest (skills, MCP wiring, interface)
+.mcp.json                          MCP server declaration (okf-tools, stdio)
+assets/logo.svg                    Brand asset referenced by the manifest
+skills/                            Model-facing guidance (the "how to do it well")
+tools/okf_core.py                  Engine: parse, scan/validate, index, graph, stats, visualize, package
+tools/okf_tool.py                  CLI front end over the engine
+tools/okf_mcp_server.py            Minimal stdio JSON-RPC MCP server over the engine
+hooks/                             Optional session-context and stop-review hooks
+references/                        Cheat sheet, conformance map, type catalog, rubric, policies
+examples/                          Sample bundles (also used as test fixtures)
+tests/                             Stdlib unittest coverage
 ```
 
 ## Core engine (`tools/okf_core.py`)
@@ -74,9 +78,10 @@ resolved relative to the bundle root (absolute `/...`) or the source file
 `build_visualization` renders a single HTML file with the bundle graph and each
 concept's body embedded as JSON. It loads Cytoscape.js (graph) and marked.js
 (Markdown) from a CDN, so the generated file needs internet access to render but
-requires no build step. Nodes are colored by `type`; the panel shows frontmatter,
-rendered body, outgoing links, and backlinks, and in-body concept links are
-clickable for graph traversal.
+requires no build step. Rendered Markdown is sanitized before injection into the
+detail panel. Nodes are colored by `type`; the panel shows frontmatter, rendered
+body, outgoing links, and backlinks, and in-body concept links are clickable for
+graph traversal.
 
 ## MCP server
 
