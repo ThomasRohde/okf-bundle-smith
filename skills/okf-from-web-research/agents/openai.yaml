@@ -1,0 +1,12 @@
+interface:
+  display_name: OKF Web Research
+  short_description: Build or enrich an OKF bundle from sourced, cited web research.
+  brand_color: "#2F6F5E"
+  default_prompt: Research authoritative sources and build a cited OKF bundle.
+policy:
+  allow_implicit_invocation: true
+dependencies:
+  tools:
+    - okf_scaffold_bundle
+    - okf_validate_bundle
+    - okf_add_log_entry

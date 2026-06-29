@@ -8,12 +8,15 @@ from pathlib import Path
 
 from okf_core import (
     add_log_entry,
+    bundle_stats,
     generate_indexes,
     graph,
     markdown_report,
     package_bundle,
     scan_bundle,
     scaffold_bundle,
+    stats_markdown,
+    write_visualization,
 )
 
 
@@ -33,6 +36,24 @@ def cmd_index(args: argparse.Namespace) -> int:
     written = generate_indexes(args.bundle, overwrite=not args.no_overwrite)
     for path in written:
         print(path)
+    return 0
+
+
+def cmd_stats(args: argparse.Namespace) -> int:
+    report = scan_bundle(args.bundle)
+    if args.format == "json":
+        payload = json.dumps(bundle_stats(report), indent=2, ensure_ascii=False)
+    else:
+        payload = stats_markdown(report)
+    if args.output:
+        Path(args.output).write_text(payload + "\n", encoding="utf-8")
+    print(payload)
+    return 0
+
+
+def cmd_visualize(args: argparse.Namespace) -> int:
+    out = write_visualization(args.bundle, args.output)
+    print(out)
     return 0
 
 
@@ -86,10 +107,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-overwrite", action="store_true")
     p.set_defaults(func=cmd_index)
 
+    p = sub.add_parser("stats", help="Summarize a bundle's concepts, types, tags, and link health")
+    p.add_argument("bundle")
+    p.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    p.add_argument("--output", help="Write the summary to a file as well as stdout")
+    p.set_defaults(func=cmd_stats)
+
     p = sub.add_parser("graph", help="Export bundle graph JSON")
     p.add_argument("bundle")
     p.add_argument("--output")
     p.set_defaults(func=cmd_graph)
+
+    p = sub.add_parser("visualize", help="Render a self-contained interactive HTML graph of the bundle")
+    p.add_argument("bundle")
+    p.add_argument("-o", "--output", default="viz.html", help="Output HTML path (default: viz.html)")
+    p.set_defaults(func=cmd_visualize)
 
     p = sub.add_parser("package", help="Package bundle as zip or tar.gz")
     p.add_argument("bundle")

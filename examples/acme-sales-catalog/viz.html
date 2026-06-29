@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>acme-sales-catalog - OKF bundle</title>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<style>
+  :root { --brand: #2F6F5E; --bg: #0f1417; --panel: #161d21; --ink: #e7edea; --muted: #9bb0a8; --line: #283437; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--ink); }
+  #app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+  header { padding: 10px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header h1 .brand { color: var(--brand); }
+  header .meta { color: var(--muted); font-size: 12px; }
+  header .controls { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  input, select, button { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font-size: 13px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--brand); }
+  #main { display: grid; grid-template-columns: 1fr 380px; min-height: 0; }
+  #cy { width: 100%; height: 100%; background: radial-gradient(circle at 30% 20%, #14201d, var(--bg)); }
+  #side { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 16px; }
+  #side .empty { color: var(--muted); font-size: 13px; line-height: 1.6; }
+  #side h2 { font-size: 17px; margin: 0 0 4px; }
+  .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #22302c; color: var(--muted); margin: 2px 4px 2px 0; }
+  .pill.type { color: #fff; }
+  .desc { color: var(--muted); font-size: 13px; margin: 8px 0 12px; }
+  .links { margin: 12px 0; }
+  .links h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 12px 0 6px; }
+  .links a, .body a { color: #7fd1b9; cursor: pointer; text-decoration: none; }
+  .links a:hover, .body a:hover { text-decoration: underline; }
+  .links ul { margin: 0; padding-left: 18px; }
+  .body { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 12px; font-size: 13.5px; line-height: 1.6; }
+  .body h1, .body h2, .body h3 { line-height: 1.3; }
+  .body table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  .body th, .body td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+  .body code { background: #0d1316; padding: 1px 5px; border-radius: 4px; }
+  .body pre { background: #0d1316; padding: 10px; border-radius: 8px; overflow: auto; }
+  .legend { display: flex; gap: 6px; flex-wrap: wrap; }
+  .legend .item { display: flex; gap: 5px; align-items: center; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; padding: 2px 6px; border-radius: 6px; }
+  .legend .item.off { opacity: .35; }
+  .legend .dot { width: 10px; height: 10px; border-radius: 50%; }
+  #banner { display: none; padding: 8px 16px; background: #4a2f2f; color: #ffd9d9; font-size: 13px; }
+  .resource { font-size: 12px; word-break: break-all; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1><span class="brand">OKF</span> &middot; acme-sales-catalog</h1>
+    <span class="meta" id="metaText"></span>
+    <div class="controls">
+      <input id="search" type="search" placeholder="Search concepts..." autocomplete="off" />
+      <select id="layout" title="Layout">
+        <option value="cose">Force</option>
+        <option value="concentric">Concentric</option>
+        <option value="breadthfirst">Hierarchy</option>
+        <option value="circle">Circle</option>
+        <option value="grid">Grid</option>
+      </select>
+      <button id="fit">Fit</button>
+    </div>
+  </header>
+  <div id="banner"></div>
+  <div id="main">
+    <div id="cy"></div>
+    <aside id="side">
+      <div class="legend" id="legend"></div>
+      <div id="detail"><p class="empty">Click a node to inspect a concept. Use search to filter, the legend to toggle types, and links in the panel to traverse the graph.</p></div>
+    </aside>
+  </div>
+</div>
+<script>
+"use strict";
+const DATA = {"nodes": [{"id": "concepts/sales-domain", "path": "concepts/sales-domain.md", "label": "Sales Domain", "type": "Reference", "color": "#8E5BB5", "description": "Entry point for the Acme sales analytics knowledge bundle and how its datasets, tables, and metrics fit together.", "resource": "", "tags": ["sales", "domain", "overview"], "body": "# Summary\n\nThe sales domain covers how Acme records and analyzes completed customer\norders. It is the recommended starting point for an agent answering questions\nabout revenue, customers, or order behavior.\n\n# Scope\n\nThis domain includes the curated [sales dataset](/datasets/sales.md), the core\n[orders](/tables/orders.md) and [customers](/tables/customers.md) tables, and\nthe governed metrics built on top of them.\n\n# Key facts\n\n* Orders are immutable once completed; corrections are issued as new rows.\n* Every order belongs to exactly one customer.\n* Revenue reporting is owned by the Finance Analytics team.\n\n# Relationships\n\n* Curated data lives in the [sales dataset](/datasets/sales.md).\n* The headline metric is [gross revenue](/metrics/gross-revenue.md).\n* Daily freshness is maintained by the\n  [daily revenue refresh](/processes/daily-revenue-refresh.md) runbook."}, {"id": "datasets/sales", "path": "datasets/sales.md", "label": "Sales Dataset", "type": "Dataset", "color": "#C2683B", "description": "Curated BigQuery dataset holding completed orders, order line items, and customer records for analytics.", "resource": "https://console.cloud.google.com/bigquery?p=acme&d=sales", "tags": ["sales", "dataset", "bigquery"], "body": "# Summary\n\nThe `acme.sales` dataset is the governed source of truth for completed-order\nanalytics. It is refreshed daily and is safe for cross-team reporting.\n\n# Tables\n\n* [orders](/tables/orders.md) - one row per completed order.\n* [order_items](/tables/order-items.md) - one row per line item.\n* [customers](/tables/customers.md) - one row per customer.\n\n# Access\n\nRead access is granted through the `analytics-readers` group. Partition pruning\non `order_date` is required for any query scanning more than 90 days, per\nBigQuery [cost controls](https://cloud.google.com/bigquery/docs/best-practices-costs).\n\n# Citations\n\n[1] [BigQuery: controlling costs](https://cloud.google.com/bigquery/docs/best-practices-costs)"}, {"id": "decisions/0001-use-okf-for-catalog", "path": "decisions/0001-use-okf-for-catalog.md", "label": "Use OKF for the Sales Catalog", "type": "Architectural Decision", "color": "#2F6F5E", "description": "Decision to publish the sales data catalog as an Open Knowledge Format bundle for agent and human use.", "resource": "", "tags": ["sales", "decision", "okf"], "body": "# Context\n\nAcme's analytics agents needed curated table and metric context, but that\nknowledge was split between a proprietary catalog and a team wiki.\n\n# Decision\n\nPublish the sales catalog as an [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)\nbundle: one Markdown concept per asset, cross-linked, with generated indexes.\n\n# Rationale\n\n* The format is plain Markdown and YAML, so it is diffable and version-controlled.\n* Both agents and humans can read it without a proprietary SDK.\n* It composes with the rest of the [sales domain](/concepts/sales-domain.md).\n\n# Consequences\n\n* Producers must keep concepts in sync with schema changes via the refresh job.\n* Consumers tolerate unknown frontmatter fields, so we can extend metadata later.\n\n# Citations\n\n[1] [Open Knowledge Format specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)"}, {"id": "metrics/gross-revenue", "path": "metrics/gross-revenue.md", "label": "Gross Revenue", "type": "Metric", "color": "#3B6FC2", "description": "Total completed-order value in USD over a period, before refunds and tax adjustments.", "resource": "", "tags": ["sales", "metric", "revenue"], "body": "# Definition\n\nGross revenue is the sum of `order_total` across all completed orders in the\nreporting period.\n\n# Formula\n\n```sql\nSELECT SUM(order_total) AS gross_revenue\nFROM acme.sales.orders\nWHERE order_date BETWEEN @start AND @end;\n```\n\n# Source\n\nDerived from [orders](/tables/orders.md). Line-level reconciliation uses\n[order_items](/tables/order-items.md).\n\n# Caveats\n\n* Refund rows carry a negative `order_total`, so gross revenue is already net of\n  refunds that fall inside the same period.\n* Tax and shipping are excluded."}, {"id": "metrics/repeat-purchase-rate", "path": "metrics/repeat-purchase-rate.md", "label": "Repeat Purchase Rate", "type": "Metric", "color": "#3B6FC2", "description": "Share of customers with more than one completed order within their first 90 days.", "resource": "", "tags": ["sales", "metric", "retention"], "body": "# Definition\n\nThe repeat purchase rate is the fraction of customers who place a second\ncompleted order within 90 days of their first order.\n\n# Formula\n\n```sql\nSELECT\n  COUNTIF(orders_in_90d > 1) / COUNT(*) AS repeat_purchase_rate\nFROM (\n  SELECT customer_id, COUNT(*) AS orders_in_90d\n  FROM acme.sales.orders o\n  JOIN acme.sales.customers c USING (customer_id)\n  WHERE o.order_date <= DATE_ADD(c.first_order_date, INTERVAL 90 DAY)\n  GROUP BY customer_id\n);\n```\n\n# Source\n\nJoins [orders](/tables/orders.md) with [customers](/tables/customers.md) on\n`customer_id`.\n\n# Caveats\n\nCustomers acquired in the last 90 days have an incomplete window and should be\nexcluded from trend lines."}, {"id": "processes/daily-revenue-refresh", "path": "processes/daily-revenue-refresh.md", "label": "Daily Revenue Refresh", "type": "Runbook", "color": "#B5495B", "description": "Scheduled job that rebuilds the sales tables and validates gross revenue before publishing.", "resource": "", "tags": ["sales", "runbook", "operations"], "body": "# Trigger\n\nRuns at 06:00 UTC daily via the `sales-refresh` scheduled query, after upstream\ningestion completes.\n\n# Preconditions\n\n* Upstream `raw.orders` load for the prior day has succeeded.\n* No active schema migration on [orders](/tables/orders.md).\n\n# Steps\n\n1. Rebuild [orders](/tables/orders.md) and `order_items` for the prior day.\n2. Recompute [gross revenue](/metrics/gross-revenue.md) for the prior day.\n3. Compare against the line-item reconciliation total.\n\n# Validation\n\nThe day passes if gross revenue and the summed line totals agree within 0.5%.\n\n# Rollback\n\nIf validation fails, restore the previous partition snapshot and page the\nFinance Analytics on-call. Do not publish a failed partition."}, {"id": "tables/customers", "path": "tables/customers.md", "label": "Customers", "type": "Table", "color": "#4C9A5A", "description": "One row per customer, with acquisition channel and the date of first completed order.", "resource": "https://console.cloud.google.com/bigquery?p=acme&d=sales&t=customers", "tags": ["sales", "table", "customers"], "body": "# Summary\n\n`acme.sales.customers` holds one record per customer. It is a slowly changing\ndimension; the current row reflects the latest known attributes.\n\n# Schema\n\n| column | type | description |\n|---|---|---|\n| `customer_id` | STRING | Globally unique customer identifier. Primary key. |\n| `acquisition_channel` | STRING | Channel that produced the first order. |\n| `first_order_date` | DATE | Date of the customer's first completed order. |\n| `country` | STRING | ISO 3166-1 alpha-2 country code. |\n\n# Grain\n\nOne row per `customer_id`.\n\n# Relationships\n\nA customer places zero or more [orders](/tables/orders.md)."}, {"id": "tables/order-items", "path": "tables/order-items.md", "label": "Order Items", "type": "Table", "color": "#4C9A5A", "description": "One row per line item within an order, linking products to the order that contains them.", "resource": "https://console.cloud.google.com/bigquery?p=acme&d=sales&t=order_items", "tags": ["sales", "table", "line-items"], "body": "# Summary\n\n`acme.sales.order_items` records each product line within an order. Summing\n`line_total` across an order reconciles to the parent order's `order_total`.\n\n# Schema\n\n| column | type | description |\n|---|---|---|\n| `order_item_id` | STRING | Globally unique line identifier. Primary key. |\n| `order_id` | STRING | Foreign key to [orders](/tables/orders.md). |\n| `product_id` | STRING | Catalog identifier for the product sold. |\n| `quantity` | INT64 | Units sold on this line. |\n| `line_total` | NUMERIC | Quantity times unit price, net of discounts, in USD. |\n\n# Grain\n\nOne row per `order_item_id`. Many line items roll up to one\n[order](/tables/orders.md)."}, {"id": "tables/orders", "path": "tables/orders.md", "label": "Orders", "type": "Table", "color": "#4C9A5A", "description": "One row per completed customer order, including order total and the customer who placed it.", "resource": "https://console.cloud.google.com/bigquery?p=acme&d=sales&t=orders", "tags": ["sales", "table", "orders"], "body": "# Summary\n\n`acme.sales.orders` records every completed order. Rows are immutable; refunds\nand corrections are appended as new rows with a negative `order_total`.\n\n# Schema\n\n| column | type | description |\n|---|---|---|\n| `order_id` | STRING | Globally unique order identifier. Primary key. |\n| `customer_id` | STRING | Foreign key to [customers](/tables/customers.md). |\n| `order_date` | DATE | Partition column. Date the order completed. |\n| `order_total` | NUMERIC | Order total in USD, net of discounts. |\n| `status` | STRING | Always `completed` in this table. |\n\n# Grain\n\nOne row per `order_id`. Line-level detail lives in\n[order_items](/tables/order-items.md).\n\n# Relationships\n\n* Each order belongs to one [customer](/tables/customers.md).\n* Each order has one or more [order items](/tables/order-items.md)."}], "edges": [{"source": "concepts/sales-domain", "target": "datasets/sales"}, {"source": "concepts/sales-domain", "target": "tables/orders"}, {"source": "concepts/sales-domain", "target": "tables/customers"}, {"source": "concepts/sales-domain", "target": "metrics/gross-revenue"}, {"source": "concepts/sales-domain", "target": "processes/daily-revenue-refresh"}, {"source": "datasets/sales", "target": "tables/orders"}, {"source": "datasets/sales", "target": "tables/order-items"}, {"source": "datasets/sales", "target": "tables/customers"}, {"source": "decisions/0001-use-okf-for-catalog", "target": "concepts/sales-domain"}, {"source": "metrics/gross-revenue", "target": "tables/orders"}, {"source": "metrics/gross-revenue", "target": "tables/order-items"}, {"source": "metrics/repeat-purchase-rate", "target": "tables/orders"}, {"source": "metrics/repeat-purchase-rate", "target": "tables/customers"}, {"source": "processes/daily-revenue-refresh", "target": "tables/orders"}, {"source": "processes/daily-revenue-refresh", "target": "metrics/gross-revenue"}, {"source": "tables/customers", "target": "tables/orders"}, {"source": "tables/order-items", "target": "tables/orders"}, {"source": "tables/orders", "target": "tables/customers"}, {"source": "tables/orders", "target": "tables/order-items"}], "meta": {"name": "acme-sales-catalog", "concept_count": 9, "edge_count": 19, "type_colors": {"Architectural Decision": "#2F6F5E", "Dataset": "#C2683B", "Metric": "#3B6FC2", "Reference": "#8E5BB5", "Runbook": "#B5495B", "Table": "#4C9A5A"}, "error_count": 0, "warning_count": 0, "generated": "2026-06-29T15:50:00Z"}};
+const byId = new Map(DATA.nodes.map(n => [n.id, n]));
+const hiddenTypes = new Set();
+
+document.getElementById("metaText").textContent =
+  DATA.meta.concept_count + " concepts · " + DATA.meta.edge_count + " links · " +
+  DATA.meta.error_count + " errors · " + DATA.meta.warning_count + " warnings";
+
+if (typeof cytoscape === "undefined") {
+  const b = document.getElementById("banner");
+  b.style.display = "block";
+  b.textContent = "Could not load the Cytoscape library from the CDN. This viewer needs internet access to render the graph.";
+}
+
+function normalizePath(base, rel) {
+  const baseDir = base.includes("/") ? base.slice(0, base.lastIndexOf("/")) : "";
+  const parts = (baseDir ? baseDir.split("/") : []);
+  for (const seg of rel.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") parts.pop();
+    else parts.push(seg);
+  }
+  return parts.join("/");
+}
+
+function hrefToId(href, currentPath) {
+  let h = href.split("#")[0].split("?")[0];
+  if (!h.endsWith(".md")) return null;
+  let rel;
+  if (h.startsWith("/")) rel = h.slice(1);
+  else rel = normalizePath(currentPath, h);
+  return rel.replace(/\.md$/, "");
+}
+
+const cy = (typeof cytoscape !== "undefined") ? cytoscape({
+  container: document.getElementById("cy"),
+  elements: [
+    ...DATA.nodes.map(n => ({ data: { id: n.id, label: n.label, color: n.color, type: n.type } })),
+    ...DATA.edges.map(e => ({ data: { id: e.source + "->" + e.target, source: e.source, target: e.target } })),
+  ],
+  style: [
+    { selector: "node", style: {
+      "background-color": "data(color)", "label": "data(label)", "color": "#dfeae6",
+      "font-size": 9, "text-wrap": "wrap", "text-max-width": 120, "text-valign": "bottom",
+      "text-margin-y": 4, "width": 18, "height": 18, "border-width": 1, "border-color": "#0c1113" } },
+    { selector: "edge", style: {
+      "width": 1, "line-color": "#3a4b47", "target-arrow-color": "#3a4b47",
+      "target-arrow-shape": "triangle", "arrow-scale": 0.8, "curve-style": "bezier", "opacity": 0.7 } },
+    { selector: "node.selected", style: { "border-width": 3, "border-color": "#7fd1b9", "width": 26, "height": 26 } },
+    { selector: ".dim", style: { "opacity": 0.12 } },
+    { selector: ".hl", style: { "opacity": 1 } },
+    { selector: ".hidden", style: { "display": "none" } },
+  ],
+  layout: { name: "cose", animate: false, padding: 40 },
+  wheelSensitivity: 0.25,
+}) : null;
+
+function runLayout(name) {
+  if (!cy) return;
+  const opts = { name, animate: false, padding: 40 };
+  if (name === "concentric") { opts.concentric = n => n.degree(); opts.levelWidth = () => 4; }
+  cy.layout(opts).run();
+}
+
+function renderDetail(node) {
+  const n = byId.get(node.id());
+  if (!n) return;
+  const out = DATA.edges.filter(e => e.source === n.id).map(e => e.target);
+  const back = DATA.edges.filter(e => e.target === n.id).map(e => e.source);
+  const tagPills = n.tags.map(t => '<span class="pill">' + escapeHtml(t) + "</span>").join("");
+  const linkList = (ids) => ids.length
+    ? "<ul>" + ids.map(id => '<li><a data-goto="' + escapeHtml(id) + '">' + escapeHtml((byId.get(id) || {}).label || id) + "</a></li>").join("") + "</ul>"
+    : '<p class="empty">None.</p>';
+  const resource = n.resource ? '<p class="resource">Resource: <a href="' + escapeHtml(n.resource) + '" target="_blank" rel="noopener">' + escapeHtml(n.resource) + "</a></p>" : "";
+  const bodyHtml = (typeof marked !== "undefined") ? marked.parse(n.body || "") : "<pre>" + escapeHtml(n.body || "") + "</pre>";
+  document.getElementById("detail").innerHTML =
+    '<h2>' + escapeHtml(n.label) + "</h2>" +
+    '<span class="pill type" style="background:' + n.color + '">' + escapeHtml(n.type) + "</span>" + tagPills +
+    '<p class="desc">' + escapeHtml(n.description) + "</p>" + resource +
+    '<div class="links"><h3>Outgoing (' + out.length + ")</h3>" + linkList(out) +
+    "<h3>Backlinks (" + back.length + ")</h3>" + linkList(back) + "</div>" +
+    '<div class="body">' + bodyHtml + "</div>";
+
+  document.querySelectorAll("#detail [data-goto]").forEach(a =>
+    a.addEventListener("click", () => selectNode(a.getAttribute("data-goto"))));
+  document.querySelectorAll("#detail .body a[href]").forEach(a => {
+    const id = hrefToId(a.getAttribute("href") || "", n.path);
+    if (id && byId.has(id)) a.addEventListener("click", ev => { ev.preventDefault(); selectNode(id); });
+  });
+}
+
+function selectNode(id) {
+  if (!cy) { const n = byId.get(id); if (n) renderDetail({ id: () => id }); return; }
+  const ele = cy.getElementById(id);
+  if (!ele || ele.empty()) return;
+  cy.nodes().removeClass("selected");
+  ele.addClass("selected");
+  cy.animate({ center: { eles: ele }, zoom: Math.max(cy.zoom(), 1.2) }, { duration: 250 });
+  renderDetail(ele);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function applyFilters() {
+  if (!cy) return;
+  const q = document.getElementById("search").value.trim().toLowerCase();
+  cy.batch(() => {
+    cy.nodes().forEach(node => {
+      const n = byId.get(node.id());
+      const typeHidden = hiddenTypes.has(n.type);
+      const matches = !q || (n.label + " " + n.type + " " + n.description + " " + n.tags.join(" ")).toLowerCase().includes(q);
+      node.toggleClass("hidden", typeHidden);
+      node.toggleClass("dim", !typeHidden && !matches);
+      node.toggleClass("hl", !typeHidden && !!q && matches);
+    });
+    cy.edges().forEach(edge => {
+      edge.toggleClass("hidden", edge.source().hasClass("hidden") || edge.target().hasClass("hidden"));
+      edge.toggleClass("dim", !!q && (edge.source().hasClass("dim") || edge.target().hasClass("dim")));
+    });
+  });
+}
+
+function buildLegend() {
+  const legend = document.getElementById("legend");
+  const entries = Object.entries(DATA.meta.type_colors);
+  legend.innerHTML = entries.map(([type, color]) =>
+    '<span class="item" data-type="' + escapeHtml(type) + '"><span class="dot" style="background:' + color + '"></span>' + escapeHtml(type) + "</span>").join("");
+  legend.querySelectorAll(".item").forEach(item => item.addEventListener("click", () => {
+    const type = item.getAttribute("data-type");
+    if (hiddenTypes.has(type)) hiddenTypes.delete(type); else hiddenTypes.add(type);
+    item.classList.toggle("off");
+    applyFilters();
+  }));
+}
+
+buildLegend();
+if (cy) {
+  cy.on("tap", "node", evt => selectNode(evt.target.id()));
+  document.getElementById("search").addEventListener("input", applyFilters);
+  document.getElementById("layout").addEventListener("change", e => runLayout(e.target.value));
+  document.getElementById("fit").addEventListener("click", () => cy.fit(undefined, 40));
+}
+</script>
+</body>
+</html>

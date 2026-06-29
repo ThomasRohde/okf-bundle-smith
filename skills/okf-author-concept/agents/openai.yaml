@@ -1,0 +1,10 @@
+interface:
+  display_name: OKF Concept Author
+  short_description: Author one OKF concept with correct frontmatter, sections, and links.
+  brand_color: "#2F6F5E"
+  default_prompt: Author a single OKF concept document with citations and cross-links.
+policy:
+  allow_implicit_invocation: true
+dependencies:
+  tools:
+    - okf_validate_bundle

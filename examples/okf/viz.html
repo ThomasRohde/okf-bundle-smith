@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>okf - OKF bundle</title>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<style>
+  :root { --brand: #2F6F5E; --bg: #0f1417; --panel: #161d21; --ink: #e7edea; --muted: #9bb0a8; --line: #283437; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--ink); }
+  #app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+  header { padding: 10px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header h1 .brand { color: var(--brand); }
+  header .meta { color: var(--muted); font-size: 12px; }
+  header .controls { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  input, select, button { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font-size: 13px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--brand); }
+  #main { display: grid; grid-template-columns: 1fr 380px; min-height: 0; }
+  #cy { width: 100%; height: 100%; background: radial-gradient(circle at 30% 20%, #14201d, var(--bg)); }
+  #side { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 16px; }
+  #side .empty { color: var(--muted); font-size: 13px; line-height: 1.6; }
+  #side h2 { font-size: 17px; margin: 0 0 4px; }
+  .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #22302c; color: var(--muted); margin: 2px 4px 2px 0; }
+  .pill.type { color: #fff; }
+  .desc { color: var(--muted); font-size: 13px; margin: 8px 0 12px; }
+  .links { margin: 12px 0; }
+  .links h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 12px 0 6px; }
+  .links a, .body a { color: #7fd1b9; cursor: pointer; text-decoration: none; }
+  .links a:hover, .body a:hover { text-decoration: underline; }
+  .links ul { margin: 0; padding-left: 18px; }
+  .body { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 12px; font-size: 13.5px; line-height: 1.6; }
+  .body h1, .body h2, .body h3 { line-height: 1.3; }
+  .body table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  .body th, .body td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+  .body code { background: #0d1316; padding: 1px 5px; border-radius: 4px; }
+  .body pre { background: #0d1316; padding: 10px; border-radius: 8px; overflow: auto; }
+  .legend { display: flex; gap: 6px; flex-wrap: wrap; }
+  .legend .item { display: flex; gap: 5px; align-items: center; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; padding: 2px 6px; border-radius: 6px; }
+  .legend .item.off { opacity: .35; }
+  .legend .dot { width: 10px; height: 10px; border-radius: 50%; }
+  #banner { display: none; padding: 8px 16px; background: #4a2f2f; color: #ffd9d9; font-size: 13px; }
+  .resource { font-size: 12px; word-break: break-all; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1><span class="brand">OKF</span> &middot; okf</h1>
+    <span class="meta" id="metaText"></span>
+    <div class="controls">
+      <input id="search" type="search" placeholder="Search concepts..." autocomplete="off" />
+      <select id="layout" title="Layout">
+        <option value="cose">Force</option>
+        <option value="concentric">Concentric</option>
+        <option value="breadthfirst">Hierarchy</option>
+        <option value="circle">Circle</option>
+        <option value="grid">Grid</option>
+      </select>
+      <button id="fit">Fit</button>
+    </div>
+  </header>
+  <div id="banner"></div>
+  <div id="main">
+    <div id="cy"></div>
+    <aside id="side">
+      <div class="legend" id="legend"></div>
+      <div id="detail"><p class="empty">Click a node to inspect a concept. Use search to filter, the legend to toggle types, and links in the panel to traverse the graph.</p></div>
+    </aside>
+  </div>
+</div>
+<script>
+"use strict";
+const DATA = {"nodes": [{"id": "concepts/concept-file", "path": "concepts/concept-file.md", "label": "Concept File", "type": "Reference", "color": "#3B6FC2", "description": "Atomic Markdown document that represents one durable idea, asset, process, decision, source, or system in an OKF bundle.", "resource": "", "tags": ["okf", "concept-file", "markdown"], "body": "# Summary\n\nA concept file is the basic unit of an [OKF bundle](/concepts/open-knowledge-format.md).\nIt is a Markdown file with YAML [frontmatter](/concepts/frontmatter-schema.md)\nfollowed by a substantive Markdown body. Each concept file should describe one\ndurable thing, such as a reference concept, system, process, control, source,\ndataset, metric, or architectural decision.\n\n# Authoring Guidance\n\nAtomic concept boundaries keep the bundle reusable. A concept should be small\nenough that an agent can retrieve it directly for one question, but complete\nenough that the body gives useful context without forcing the reader to load the\nwhole bundle. Related ideas should be connected through [concept links](/concepts/concept-links.md).\n\n# Relationships\n\n* Metadata belongs in the [frontmatter schema](/concepts/frontmatter-schema.md).\n* Navigation and update history belong in [reserved files](/concepts/reserved-files.md), not concept files.\n* The [bundle authoring workflow](/processes/bundle-authoring-workflow.md) starts by inventorying concept files before writing them.\n\n# Citations\n\n[1] [Open Knowledge Format specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)\n[2] Local source: `references/concept-type-catalog.md`.\n[3] Local source: `skills/okf-bundle-architect/SKILL.md`.\n"}, {"id": "concepts/concept-links", "path": "concepts/concept-links.md", "label": "Concept Links", "type": "Reference", "color": "#3B6FC2", "description": "Markdown links that connect OKF concept files into a traversable knowledge graph.", "resource": "", "tags": ["okf", "links", "graph"], "body": "# Summary\n\nConcept links are ordinary Markdown links between [concept files](/concepts/concept-file.md).\nThey let OKF consumers traverse from one durable concept to related concepts\nwithout needing a separate graph database or proprietary catalog API.\n\n# Link Practice\n\nUse bundle-relative links when linking concepts inside a bundle. Absolute\nbundle-relative links such as `/systems/okf-bundle-smith.md` keep paths stable\nwhen files move between directories. Link semantics should be clear from the\nsentence or list item around the link.\n\n# Relationships\n\n* [Open Knowledge Format](/concepts/open-knowledge-format.md) uses links as the graph edge mechanism.\n* [Reserved files](/concepts/reserved-files.md) use links for progressive disclosure.\n* The [validation profile](/controls/validation-profile.md) warns on broken internal links.\n\n# Citations\n\n[1] [Open Knowledge Format specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)\n[2] Local source: `references/okf-v0.1-cheatsheet.md`.\n[3] Local source: `references/okf-v0.1-conformance.md`.\n"}, {"id": "concepts/frontmatter-schema", "path": "concepts/frontmatter-schema.md", "label": "Frontmatter Schema", "type": "Reference", "color": "#3B6FC2", "description": "Minimal metadata contract for OKF concept files and the recommended fields used by OKF Bundle Smith.", "resource": "", "tags": ["okf", "frontmatter", "metadata"], "body": "# Summary\n\nOKF concept files use YAML frontmatter at the top of each\n[concept file](/concepts/concept-file.md). The only required field in OKF v0.1\nis `type`, but OKF Bundle Smith recommends adding `title`, `description`,\n`tags`, and `timestamp` when possible.\n\n# Field Guidance\n\n`type` should be a short, descriptive concept type. `title` is the human display\nname. `description` should be a compact one-sentence summary. `tags` should be a\nYAML list so tools can filter by topic. `timestamp` should be ISO 8601 with a\ntimezone when possible. `resource` should be present only when there is a real\ncanonical URI for the underlying asset or source.\n\n# Relationships\n\n* [Reserved files](/concepts/reserved-files.md) such as `index.md` and `log.md` should not have frontmatter.\n* The [validation profile](/controls/validation-profile.md) checks the required field and warns on missing recommended fields.\n* The [OKF specification source](/sources/okf-spec.md) defines the minimal frontmatter contract.\n\n# Citations\n\n[1] [Open Knowledge Format specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)\n[2] Local source: `references/okf-v0.1-cheatsheet.md`.\n[3] Local source: `references/okf-v0.1-conformance.md`.\n"}, {"id": "concepts/open-knowledge-format", "path": "concepts/open-knowledge-format.md", "label": "Open Knowledge Format", "type": "Reference", "color": "#3B6FC2", "description": "Concept graph format that represents durable knowledge as Markdown files with YAML frontmatter and links.", "resource": "https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md", "tags": ["okf", "knowledge-format", "concept-graph"], "body": "# Summary\n\nOpen Knowledge Format, or OKF, is a lightweight convention for representing a\nknowledge bundle as Markdown [concept files](/concepts/concept-file.md). Each\nconcept file has YAML [frontmatter](/concepts/frontmatter-schema.md), a Markdown\nbody, and optional links to related concepts.\n\n# Scope\n\nOKF deliberately keeps the required contract small. The format defines how\nconcept files are stored, how reserved files such as [indexes and logs](/concepts/reserved-files.md)\nare treated, and how normal Markdown [links](/concepts/concept-links.md) can\nform a graph. Higher-level authoring practices, source discipline, and quality\nchecks are conventions layered on top of the minimal spec.\n\n# Relationships\n\n* The [OKF specification source](/sources/okf-spec.md) is the canonical public source for the format.\n* [OKF Bundle Smith](/systems/okf-bundle-smith.md) provides local tools and skills for authoring and validating bundles.\n* The [bundle authoring workflow](/processes/bundle-authoring-workflow.md) turns the format rules into a repeatable process.\n* The [validation profile](/controls/validation-profile.md) separates hard conformance from quality warnings.\n\n# Citations\n\n[1] [Open Knowledge Format specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)\n[2] Local source: `references/okf-v0.1-cheatsheet.md`.\n"}, {"id": "concepts/reserved-files", "path": "concepts/reserved-files.md", "label": "Reserved Files", "type": "Reference", "color": "#3B6FC2", "description": "Index and log files that support navigation and change history without becoming concepts themselves.", "resource": "", "tags": ["okf", "indexes", "logs"], "body": "# Summary\n\nOKF reserves `index.md` and `log.md` for bundle navigation and update history.\nThese files are Markdown, but they are not [concept files](/concepts/concept-file.md)\nand should not contain YAML [frontmatter](/concepts/frontmatter-schema.md).\n\n# Usage\n\n`index.md` files provide progressive disclosure. A root index introduces the\nbundle, and directory indexes list child directories and local concepts. `log.md`\nrecords date-grouped changes so bundle consumers can understand freshness and\nmaintenance history.\n\n# Relationships\n\n* Index links help expose [concept links](/concepts/concept-links.md) and improve discoverability.\n* The [bundle authoring workflow](/processes/bundle-authoring-workflow.md) creates or regenerates indexes after concept files are written.\n* The [validation profile](/controls/validation-profile.md) warns when participating directories lack indexes or logs have invalid date headings.\n\n# Citations\n\n[1] [Open Knowledge Format specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)\n[2] Local source: `references/okf-v0.1-cheatsheet.md`.\n[3] Local source: `references/okf-v0.1-conformance.md`.\n"}, {"id": "controls/validation-profile", "path": "controls/validation-profile.md", "label": "Validation Profile", "type": "Control", "color": "#2F6F5E", "description": "Practical OKF Bundle Smith checks for hard conformance, quality warnings, link health, and discoverability.", "resource": "", "tags": ["okf", "validation", "quality"], "body": "# Summary\n\nThe validation profile describes how [OKF Bundle Smith](/systems/okf-bundle-smith.md)\nchecks an [OKF bundle](/concepts/open-knowledge-format.md). It separates hard\nformat conformance from quality guidance that improves retrieval and review.\n\n# Hard Conformance\n\nHard conformance checks include parseable Markdown concept files with YAML\n[frontmatter](/concepts/frontmatter-schema.md), a non-empty `type` field, a\nfrontmatter mapping, and valid UTF-8. These checks map to the minimal OKF v0.1\ncontract.\n\n# Quality Warnings\n\nQuality warnings cover recommended metadata, real URI handling for `resource`,\ntimestamp shape, substantive body text, citation sections for external links,\nresolved [concept links](/concepts/concept-links.md), directory indexes, reserved\nfile handling, duplicate titles, and orphan concepts.\n\n# Evidence\n\nA clean validation run should report zero errors and only intentional warnings.\nFor this example bundle, validation is performed with `python tools/okf_tool.py\nlint examples/okf` from the repository root.\n\n# Citations\n\n[1] Local source: `references/okf-v0.1-conformance.md`.\n[2] Local source: `tools/okf_core.py`."}, {"id": "processes/bundle-authoring-workflow", "path": "processes/bundle-authoring-workflow.md", "label": "Bundle Authoring Workflow", "type": "Process", "color": "#C2683B", "description": "Repeatable process for turning a source boundary and concept inventory into a validated OKF bundle.", "resource": "", "tags": ["okf", "authoring", "workflow"], "body": "# Summary\n\nThe bundle authoring workflow turns a source boundary into a useful\n[OKF bundle](/concepts/open-knowledge-format.md). It emphasizes atomic concept\nfiles, traceable claims, directory indexes, and validation before handoff.\n\n# Steps\n\n1. Define the [source policy](/sources/source-policy.md) and intended consumers.\n2. Create a concept inventory with stable paths, types, titles, descriptions, tags, and key citations.\n3. Write one [concept file](/concepts/concept-file.md) per durable concept.\n4. Add bundle-relative [concept links](/concepts/concept-links.md) that support traversal.\n5. Create root and directory [reserved files](/concepts/reserved-files.md) for indexes and update history.\n6. Run the [validation profile](/controls/validation-profile.md), repair hard errors, and document any intentional warnings.\n7. Package or publish the bundle only after validation.\n\n# Outputs\n\nThe expected output is a directory tree of Markdown files that can be read\ndirectly, linted by [OKF Bundle Smith](/systems/okf-bundle-smith.md), and used as\nretrieval context by humans or agents.\n\n# Citations\n\n[1] Local source: `skills/okf-bundle-architect/SKILL.md`.\n[2] Local source: `README.md`.\n"}, {"id": "sources/okf-spec", "path": "sources/okf-spec.md", "label": "OKF Specification Source", "type": "Source", "color": "#8E5BB5", "description": "Canonical public source for the Open Knowledge Format v0.1 rules referenced by this bundle.", "resource": "https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md", "tags": ["okf", "specification", "source"], "body": "# Summary\n\nThe OKF specification source is the canonical public reference for the minimal\n[Open Knowledge Format](/concepts/open-knowledge-format.md) rules used in this\nbundle. It defines the core contract for Markdown concept files, YAML\nfrontmatter, and required metadata.\n\n# Reliability\n\nThis source is treated as authoritative for OKF v0.1 conformance. Local OKF\nBundle Smith references interpret that source for authoring and validation, but\nthey do not replace the upstream specification.\n\n# Used For\n\n* Defining the required [frontmatter](/concepts/frontmatter-schema.md) field.\n* Explaining [concept files](/concepts/concept-file.md).\n* Distinguishing reserved navigation files from concept files.\n\n# Citations\n\n[1] [Open Knowledge Format specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)\n"}, {"id": "sources/source-policy", "path": "sources/source-policy.md", "label": "Source Policy", "type": "Source", "color": "#8E5BB5", "description": "Source boundary and citation policy for this OKF example bundle.", "resource": "", "tags": ["okf", "source-policy", "citations"], "body": "# Summary\n\nThis example bundle is sourced from the upstream\n[OKF specification](/sources/okf-spec.md) and local OKF Bundle Smith\ndocumentation. It is not a market landscape, product comparison, or broad web\nresearch bundle.\n\n# Authoritative Sources\n\nThe canonical public source for format requirements is the\n[OKF specification source](/sources/okf-spec.md). Local source identifiers\ninclude `references/okf-v0.1-cheatsheet.md`,\n`references/okf-v0.1-conformance.md`, `references/concept-type-catalog.md`,\n`README.md`, and `skills/okf-bundle-architect/SKILL.md`.\n\n# Citation Rules\n\nClaims about hard OKF requirements should cite the public specification. Claims\nabout OKF Bundle Smith behavior should cite local repository files by path in\nthe `# Citations` section. Local paths are cited as source identifiers instead\nof Markdown links so the bundle remains valid when linted from its own root.\n\n# Exclusions\n\nThis bundle does not use secondary blog posts, vendor marketing pages, or\nuncited model knowledge. It also does not invent canonical URIs for concepts\nthat do not have one.\n\n# Relationships\n\n* [Open Knowledge Format](/concepts/open-knowledge-format.md) relies on this source boundary.\n* The [validation profile](/controls/validation-profile.md) enforces citation and link quality where tooling can detect it.\n\n# Citations\n\n[1] [Open Knowledge Format specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)\n[2] Local source: `README.md`.\n[3] Local source: `skills/okf-bundle-architect/SKILL.md`.\n"}, {"id": "systems/okf-bundle-smith", "path": "systems/okf-bundle-smith.md", "label": "OKF Bundle Smith", "type": "System", "color": "#B5495B", "description": "Local Codex plugin and command-line toolkit for creating, validating, graphing, visualizing, and packaging OKF bundles.", "resource": "", "tags": ["okf", "tooling", "codex-plugin"], "body": "# Summary\n\nOKF Bundle Smith is the local toolkit used to create this\n[Open Knowledge Format](/concepts/open-knowledge-format.md) example. It provides\nskills, a command-line tool, and an MCP server for the OKF bundle lifecycle.\n\n# Capabilities\n\nThe toolkit can scaffold a bundle, validate concepts, generate indexes, compute\nstats, export graph JSON, render an HTML visualization, add log entries, and\npackage a bundle. The same lifecycle supports the\n[bundle authoring workflow](/processes/bundle-authoring-workflow.md) and the\n[validation profile](/controls/validation-profile.md).\n\n# Interfaces\n\nThe local CLI entry point is `tools/okf_tool.py`. The local MCP server exposes\nmatching operations through `tools/okf_mcp_server.py`. Repository skills under\n`skills/` define authoring, review, update, data catalog, and web research\nworkflows for OKF bundles.\n\n# Citations\n\n[1] Local source: `README.md`.\n[2] Local source: `tools/okf_tool.py`.\n[3] Local source: `tools/okf_mcp_server.py`.\n"}], "edges": [{"source": "concepts/concept-file", "target": "concepts/open-knowledge-format"}, {"source": "concepts/concept-file", "target": "concepts/frontmatter-schema"}, {"source": "concepts/concept-file", "target": "concepts/concept-links"}, {"source": "concepts/concept-file", "target": "concepts/reserved-files"}, {"source": "concepts/concept-file", "target": "processes/bundle-authoring-workflow"}, {"source": "concepts/concept-links", "target": "concepts/concept-file"}, {"source": "concepts/concept-links", "target": "concepts/open-knowledge-format"}, {"source": "concepts/concept-links", "target": "concepts/reserved-files"}, {"source": "concepts/concept-links", "target": "controls/validation-profile"}, {"source": "concepts/frontmatter-schema", "target": "concepts/concept-file"}, {"source": "concepts/frontmatter-schema", "target": "concepts/reserved-files"}, {"source": "concepts/frontmatter-schema", "target": "controls/validation-profile"}, {"source": "concepts/frontmatter-schema", "target": "sources/okf-spec"}, {"source": "concepts/open-knowledge-format", "target": "concepts/concept-file"}, {"source": "concepts/open-knowledge-format", "target": "concepts/frontmatter-schema"}, {"source": "concepts/open-knowledge-format", "target": "concepts/reserved-files"}, {"source": "concepts/open-knowledge-format", "target": "concepts/concept-links"}, {"source": "concepts/open-knowledge-format", "target": "sources/okf-spec"}, {"source": "concepts/open-knowledge-format", "target": "systems/okf-bundle-smith"}, {"source": "concepts/open-knowledge-format", "target": "processes/bundle-authoring-workflow"}, {"source": "concepts/open-knowledge-format", "target": "controls/validation-profile"}, {"source": "concepts/reserved-files", "target": "concepts/concept-file"}, {"source": "concepts/reserved-files", "target": "concepts/frontmatter-schema"}, {"source": "concepts/reserved-files", "target": "concepts/concept-links"}, {"source": "concepts/reserved-files", "target": "processes/bundle-authoring-workflow"}, {"source": "concepts/reserved-files", "target": "controls/validation-profile"}, {"source": "controls/validation-profile", "target": "systems/okf-bundle-smith"}, {"source": "controls/validation-profile", "target": "concepts/open-knowledge-format"}, {"source": "controls/validation-profile", "target": "concepts/frontmatter-schema"}, {"source": "controls/validation-profile", "target": "concepts/concept-links"}, {"source": "processes/bundle-authoring-workflow", "target": "concepts/open-knowledge-format"}, {"source": "processes/bundle-authoring-workflow", "target": "sources/source-policy"}, {"source": "processes/bundle-authoring-workflow", "target": "concepts/concept-file"}, {"source": "processes/bundle-authoring-workflow", "target": "concepts/concept-links"}, {"source": "processes/bundle-authoring-workflow", "target": "concepts/reserved-files"}, {"source": "processes/bundle-authoring-workflow", "target": "controls/validation-profile"}, {"source": "processes/bundle-authoring-workflow", "target": "systems/okf-bundle-smith"}, {"source": "sources/okf-spec", "target": "concepts/open-knowledge-format"}, {"source": "sources/okf-spec", "target": "concepts/frontmatter-schema"}, {"source": "sources/okf-spec", "target": "concepts/concept-file"}, {"source": "sources/source-policy", "target": "sources/okf-spec"}, {"source": "sources/source-policy", "target": "concepts/open-knowledge-format"}, {"source": "sources/source-policy", "target": "controls/validation-profile"}, {"source": "systems/okf-bundle-smith", "target": "concepts/open-knowledge-format"}, {"source": "systems/okf-bundle-smith", "target": "processes/bundle-authoring-workflow"}, {"source": "systems/okf-bundle-smith", "target": "controls/validation-profile"}], "meta": {"name": "okf", "concept_count": 10, "edge_count": 46, "type_colors": {"Control": "#2F6F5E", "Process": "#C2683B", "Reference": "#3B6FC2", "Source": "#8E5BB5", "System": "#B5495B"}, "error_count": 0, "warning_count": 0, "generated": "2026-06-29T16:54:57Z"}};
+const byId = new Map(DATA.nodes.map(n => [n.id, n]));
+const hiddenTypes = new Set();
+
+document.getElementById("metaText").textContent =
+  DATA.meta.concept_count + " concepts · " + DATA.meta.edge_count + " links · " +
+  DATA.meta.error_count + " errors · " + DATA.meta.warning_count + " warnings";
+
+if (typeof cytoscape === "undefined") {
+  const b = document.getElementById("banner");
+  b.style.display = "block";
+  b.textContent = "Could not load the Cytoscape library from the CDN. This viewer needs internet access to render the graph.";
+}
+
+function normalizePath(base, rel) {
+  const baseDir = base.includes("/") ? base.slice(0, base.lastIndexOf("/")) : "";
+  const parts = (baseDir ? baseDir.split("/") : []);
+  for (const seg of rel.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") parts.pop();
+    else parts.push(seg);
+  }
+  return parts.join("/");
+}
+
+function hrefToId(href, currentPath) {
+  let h = href.split("#")[0].split("?")[0];
+  if (!h.endsWith(".md")) return null;
+  let rel;
+  if (h.startsWith("/")) rel = h.slice(1);
+  else rel = normalizePath(currentPath, h);
+  return rel.replace(/\.md$/, "");
+}
+
+const cy = (typeof cytoscape !== "undefined") ? cytoscape({
+  container: document.getElementById("cy"),
+  elements: [
+    ...DATA.nodes.map(n => ({ data: { id: n.id, label: n.label, color: n.color, type: n.type } })),
+    ...DATA.edges.map(e => ({ data: { id: e.source + "->" + e.target, source: e.source, target: e.target } })),
+  ],
+  style: [
+    { selector: "node", style: {
+      "background-color": "data(color)", "label": "data(label)", "color": "#dfeae6",
+      "font-size": 9, "text-wrap": "wrap", "text-max-width": 120, "text-valign": "bottom",
+      "text-margin-y": 4, "width": 18, "height": 18, "border-width": 1, "border-color": "#0c1113" } },
+    { selector: "edge", style: {
+      "width": 1, "line-color": "#3a4b47", "target-arrow-color": "#3a4b47",
+      "target-arrow-shape": "triangle", "arrow-scale": 0.8, "curve-style": "bezier", "opacity": 0.7 } },
+    { selector: "node.selected", style: { "border-width": 3, "border-color": "#7fd1b9", "width": 26, "height": 26 } },
+    { selector: ".dim", style: { "opacity": 0.12 } },
+    { selector: ".hl", style: { "opacity": 1 } },
+    { selector: ".hidden", style: { "display": "none" } },
+  ],
+  layout: { name: "cose", animate: false, padding: 40 },
+  wheelSensitivity: 0.25,
+}) : null;
+
+function runLayout(name) {
+  if (!cy) return;
+  const opts = { name, animate: false, padding: 40 };
+  if (name === "concentric") { opts.concentric = n => n.degree(); opts.levelWidth = () => 4; }
+  cy.layout(opts).run();
+}
+
+function renderDetail(node) {
+  const n = byId.get(node.id());
+  if (!n) return;
+  const out = DATA.edges.filter(e => e.source === n.id).map(e => e.target);
+  const back = DATA.edges.filter(e => e.target === n.id).map(e => e.source);
+  const tagPills = n.tags.map(t => '<span class="pill">' + escapeHtml(t) + "</span>").join("");
+  const linkList = (ids) => ids.length
+    ? "<ul>" + ids.map(id => '<li><a data-goto="' + escapeHtml(id) + '">' + escapeHtml((byId.get(id) || {}).label || id) + "</a></li>").join("") + "</ul>"
+    : '<p class="empty">None.</p>';
+  const resource = n.resource ? '<p class="resource">Resource: <a href="' + escapeHtml(n.resource) + '" target="_blank" rel="noopener">' + escapeHtml(n.resource) + "</a></p>" : "";
+  const bodyHtml = (typeof marked !== "undefined") ? marked.parse(n.body || "") : "<pre>" + escapeHtml(n.body || "") + "</pre>";
+  document.getElementById("detail").innerHTML =
+    '<h2>' + escapeHtml(n.label) + "</h2>" +
+    '<span class="pill type" style="background:' + n.color + '">' + escapeHtml(n.type) + "</span>" + tagPills +
+    '<p class="desc">' + escapeHtml(n.description) + "</p>" + resource +
+    '<div class="links"><h3>Outgoing (' + out.length + ")</h3>" + linkList(out) +
+    "<h3>Backlinks (" + back.length + ")</h3>" + linkList(back) + "</div>" +
+    '<div class="body">' + bodyHtml + "</div>";
+
+  document.querySelectorAll("#detail [data-goto]").forEach(a =>
+    a.addEventListener("click", () => selectNode(a.getAttribute("data-goto"))));
+  document.querySelectorAll("#detail .body a[href]").forEach(a => {
+    const id = hrefToId(a.getAttribute("href") || "", n.path);
+    if (id && byId.has(id)) a.addEventListener("click", ev => { ev.preventDefault(); selectNode(id); });
+  });
+}
+
+function selectNode(id) {
+  if (!cy) { const n = byId.get(id); if (n) renderDetail({ id: () => id }); return; }
+  const ele = cy.getElementById(id);
+  if (!ele || ele.empty()) return;
+  cy.nodes().removeClass("selected");
+  ele.addClass("selected");
+  cy.animate({ center: { eles: ele }, zoom: Math.max(cy.zoom(), 1.2) }, { duration: 250 });
+  renderDetail(ele);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function applyFilters() {
+  if (!cy) return;
+  const q = document.getElementById("search").value.trim().toLowerCase();
+  cy.batch(() => {
+    cy.nodes().forEach(node => {
+      const n = byId.get(node.id());
+      const typeHidden = hiddenTypes.has(n.type);
+      const matches = !q || (n.label + " " + n.type + " " + n.description + " " + n.tags.join(" ")).toLowerCase().includes(q);
+      node.toggleClass("hidden", typeHidden);
+      node.toggleClass("dim", !typeHidden && !matches);
+      node.toggleClass("hl", !typeHidden && !!q && matches);
+    });
+    cy.edges().forEach(edge => {
+      edge.toggleClass("hidden", edge.source().hasClass("hidden") || edge.target().hasClass("hidden"));
+      edge.toggleClass("dim", !!q && (edge.source().hasClass("dim") || edge.target().hasClass("dim")));
+    });
+  });
+}
+
+function buildLegend() {
+  const legend = document.getElementById("legend");
+  const entries = Object.entries(DATA.meta.type_colors);
+  legend.innerHTML = entries.map(([type, color]) =>
+    '<span class="item" data-type="' + escapeHtml(type) + '"><span class="dot" style="background:' + color + '"></span>' + escapeHtml(type) + "</span>").join("");
+  legend.querySelectorAll(".item").forEach(item => item.addEventListener("click", () => {
+    const type = item.getAttribute("data-type");
+    if (hiddenTypes.has(type)) hiddenTypes.delete(type); else hiddenTypes.add(type);
+    item.classList.toggle("off");
+    applyFilters();
+  }));
+}
+
+buildLegend();
+if (cy) {
+  cy.on("tap", "node", evt => selectNode(evt.target.id()));
+  document.getElementById("search").addEventListener("input", applyFilters);
+  document.getElementById("layout").addEventListener("change", e => runLayout(e.target.value));
+  document.getElementById("fit").addEventListener("click", () => cy.fit(undefined, 40));
+}
+</script>
+</body>
+</html>

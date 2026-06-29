@@ -1,6 +1,10 @@
 ---
 name: okf-bundle-architect
 description: Design a new Open Knowledge Format bundle, including scope, concept taxonomy, directory structure, source policy, indexes, logs, validation gates, and final packaging.
+type: Skill
+title: OKF Bundle Architect Skill
+tags: [okf, skill, architecture]
+timestamp: 2026-06-29T18:45:00+02:00
 ---
 
 Use this skill when the user asks to create a new OKF bundle or asks how an OKF bundle should be structured.

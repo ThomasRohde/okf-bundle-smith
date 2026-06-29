@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="OKF Bundle Smith">
+  <rect width="256" height="256" rx="48" fill="#2F6F5E"/>
+  <g stroke="#9FE3CE" stroke-width="6" stroke-linecap="round">
+    <line x1="128" y1="72" x2="72" y2="140"/>
+    <line x1="128" y1="72" x2="184" y2="140"/>
+    <line x1="72" y1="140" x2="128" y2="196"/>
+    <line x1="184" y1="140" x2="128" y2="196"/>
+    <line x1="72" y1="140" x2="184" y2="140"/>
+  </g>
+  <g fill="#EAF7F1">
+    <circle cx="128" cy="72" r="20"/>
+    <circle cx="72" cy="140" r="18"/>
+    <circle cx="184" cy="140" r="18"/>
+    <circle cx="128" cy="196" r="18"/>
+  </g>
+</svg>

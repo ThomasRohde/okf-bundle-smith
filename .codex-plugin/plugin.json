@@ -1,7 +1,7 @@
 {
   "name": "okf-bundle-smith",
-  "version": "0.2.0",
-  "description": "Create, enrich, validate, repair, and package Open Knowledge Format bundles from web, repository, and enterprise sources.",
+  "version": "0.3.0",
+  "description": "Create, enrich, validate, repair, visualize, and package Open Knowledge Format bundles from web, repository, and enterprise sources.",
   "author": {
     "name": "OKF Bundle Smith maintainers"
   },
@@ -25,6 +25,8 @@
     "category": "Productivity",
     "capabilities": ["Read", "Write", "Interactive"],
     "brandColor": "#2F6F5E",
+    "logo": "assets/logo.svg",
+    "composerIcon": "assets/logo.svg",
     "defaultPrompt": [
       "Create an OKF bundle from authoritative sources.",
       "Review and repair this OKF bundle.",

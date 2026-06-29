@@ -1,6 +1,10 @@
 ---
 name: okf-update-existing-bundle
 description: Update an existing OKF bundle with new research, changed sources, repaired links, preserved metadata, and dated log entries.
+type: Skill
+title: OKF Update Existing Bundle Skill
+tags: [okf, skill, update]
+timestamp: 2026-06-29T18:45:00+02:00
 ---
 
 Use this skill when a user asks to refresh, extend, or update an OKF bundle.

@@ -1,3 +1,11 @@
+---
+type: Reference
+title: Source Policy Template
+description: Template for defining source boundaries, source classes, citation rules, and licensing constraints before creating web-derived OKF bundles.
+tags: [okf, source-policy, template]
+timestamp: 2026-06-29T18:45:00+02:00
+---
+
 # Source policy template
 
 Use this before creating web-derived OKF bundles.

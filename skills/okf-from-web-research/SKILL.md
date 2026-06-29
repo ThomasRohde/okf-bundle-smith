@@ -1,6 +1,10 @@
 ---
 name: okf-from-web-research
 description: Build or enrich an OKF bundle from web research with source quality controls, citations, freshness checks, and parallel subagent research patterns.
+type: Skill
+title: OKF From Web Research Skill
+tags: [okf, skill, web-research]
+timestamp: 2026-06-29T18:45:00+02:00
 ---
 
 Use this skill when the user asks to create, update, or enrich an OKF bundle from public web sources.

@@ -1,3 +1,11 @@
+---
+type: Playbook
+title: Subagent Playbook for OKF Bundles
+description: Role guidance for using subagents during broad OKF bundle research, mapping, authoring, citation audit, and graph review.
+tags: [okf, subagents, playbook]
+timestamp: 2026-06-29T18:45:00+02:00
+---
+
 # Subagent playbook for OKF bundles
 
 Use subagents when a bundle is broad enough that research, validation, and graph design would pollute the main conversation.

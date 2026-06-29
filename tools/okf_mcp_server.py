@@ -21,12 +21,15 @@ sys.path.insert(0, str(_THIS.parent))
 
 from okf_core import (  # noqa: E402
     add_log_entry,
+    bundle_stats,
     generate_indexes,
     graph,
     markdown_report,
     package_bundle,
     scan_bundle,
     scaffold_bundle,
+    stats_markdown,
+    write_visualization,
 )
 
 
@@ -80,12 +83,36 @@ def _tool_schema() -> list[dict]:
             }
         },
         {
+            "name": "okf_stats",
+            "description": "Summarize an OKF bundle: concept counts, type and tag distribution, and link health.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bundle_path": {"type": "string", "description": "Path to the OKF bundle directory."},
+                    "format": {"type": "string", "enum": ["markdown", "json"], "default": "markdown"}
+                },
+                "required": ["bundle_path"]
+            }
+        },
+        {
             "name": "okf_export_graph",
             "description": "Export a JSON graph of OKF concepts and Markdown links.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "bundle_path": {"type": "string"}
+                },
+                "required": ["bundle_path"]
+            }
+        },
+        {
+            "name": "okf_visualize",
+            "description": "Render a self-contained interactive HTML graph of an OKF bundle (Cytoscape.js viewer).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bundle_path": {"type": "string", "description": "Path to the OKF bundle directory."},
+                    "output_path": {"type": "string", "description": "Where to write the HTML file (default: <bundle>/viz.html)."}
                 },
                 "required": ["bundle_path"]
             }
@@ -140,8 +167,20 @@ def _call_tool(name: str, arguments: dict) -> dict:
         text = "Scaffolded OKF bundle:\n" + "\n".join(str(p) for p in written)
         return _text_result(text)
 
+    if name == "okf_stats":
+        report = scan_bundle(arguments["bundle_path"])
+        if arguments.get("format", "markdown") == "json":
+            return _text_result(json.dumps(bundle_stats(report), indent=2, ensure_ascii=False))
+        return _text_result(stats_markdown(report))
+
     if name == "okf_export_graph":
         return _text_result(json.dumps(graph(arguments["bundle_path"]), indent=2, ensure_ascii=False))
+
+    if name == "okf_visualize":
+        bundle_path = arguments["bundle_path"]
+        output_path = arguments.get("output_path") or str(Path(bundle_path) / "viz.html")
+        out = write_visualization(bundle_path, output_path)
+        return _text_result(f"Wrote OKF visualization: {out}")
 
     if name == "okf_add_log_entry":
         path = add_log_entry(
@@ -170,7 +209,7 @@ def handle(request: dict) -> dict | None:
         result = {
             "protocolVersion": "2024-11-05",
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "okf-bundle-smith", "version": "0.2.0"}
+            "serverInfo": {"name": "okf-bundle-smith", "version": "0.3.0"}
         }
     elif method == "tools/list":
         result = {"tools": _tool_schema()}

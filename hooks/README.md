@@ -1,3 +1,11 @@
+---
+type: Reference
+title: Optional Hooks
+description: Reference for optional Codex hook scripts bundled with OKF Bundle Smith.
+tags: [okf, hooks, codex]
+timestamp: 2026-06-29T18:45:00+02:00
+---
+
 # Optional Hooks
 
 These scripts are optional local helpers for Codex environments that support hook configuration outside the plugin manifest.

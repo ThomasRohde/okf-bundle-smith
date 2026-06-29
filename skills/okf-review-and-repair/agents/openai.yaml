@@ -1,0 +1,15 @@
+interface:
+  display_name: OKF Review & Repair
+  short_description: Validate, audit, and repair an OKF bundle for conformance and quality.
+  brand_color: "#2F6F5E"
+  default_prompt: Review and repair this OKF bundle, then re-validate.
+policy:
+  allow_implicit_invocation: true
+dependencies:
+  tools:
+    - okf_validate_bundle
+    - okf_stats
+    - okf_generate_indexes
+    - okf_export_graph
+    - okf_visualize
+    - okf_add_log_entry

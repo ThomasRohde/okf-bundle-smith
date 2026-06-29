@@ -1,3 +1,11 @@
+---
+type: Control
+title: OKF Bundle Quality Rubric
+description: Quality rubric for reviewing OKF bundles after hard conformance checks pass.
+tags: [okf, quality, review]
+timestamp: 2026-06-29T18:45:00+02:00
+---
+
 # OKF bundle quality rubric
 
 Use this rubric after conformance checks pass.

@@ -1,0 +1,14 @@
+interface:
+  display_name: OKF Data Catalog
+  short_description: Turn datasets, tables, and metrics into a cross-linked OKF catalog.
+  brand_color: "#2F6F5E"
+  default_prompt: Turn this data catalog into an OKF bundle with join paths and metrics.
+policy:
+  allow_implicit_invocation: true
+dependencies:
+  tools:
+    - okf_scaffold_bundle
+    - okf_generate_indexes
+    - okf_validate_bundle
+    - okf_visualize
+    - okf_package_bundle

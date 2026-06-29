@@ -21,10 +21,13 @@ import zipfile
 
 RESERVED_FILENAMES = {"index.md", "log.md"}
 RECOMMENDED_FIELDS = ["title", "description", "tags", "timestamp"]
-MD_LINK_RE = re.compile(r"(?<!!)?\[([^\]]+)\]\(([^)]+)\)")
+# Match Markdown links but not images (a leading `!` marks an image).
+MD_LINK_RE = re.compile(r"(?<!!)\[([^\]]+)\]\(([^)]+)\)")
 CITATION_HEADING_RE = re.compile(r"^#\s+Citations\s*$", re.IGNORECASE | re.MULTILINE)
 YAML_BOUNDARY = "---"
 SLUG_RE = re.compile(r"[^a-z0-9]+")
+# Allow small clock skew before flagging a timestamp as future-dated.
+FUTURE_TIMESTAMP_SKEW_SECONDS = 24 * 60 * 60
 
 
 @dataclass
@@ -254,8 +257,13 @@ def scan_bundle(root: str | Path, strict: bool = False) -> BundleReport:
                     report.issues.append(Issue("warning", rel, "`resource` should be a URI with a scheme, or be omitted."))
 
         if "timestamp" in fm and fm.get("timestamp"):
-            if not _looks_like_iso8601(str(fm["timestamp"])):
+            parsed_ts = _parse_iso8601(str(fm["timestamp"]))
+            if parsed_ts is None:
                 report.issues.append(Issue("warning", rel, "`timestamp` should be ISO 8601, preferably with timezone."))
+            else:
+                now = datetime.now(parsed_ts.tzinfo) if parsed_ts.tzinfo else datetime.now()
+                if (parsed_ts - now).total_seconds() > FUTURE_TIMESTAMP_SKEW_SECONDS:
+                    report.issues.append(Issue("warning", rel, "`timestamp` is in the future; check the concept's date."))
 
         if not body.strip():
             report.issues.append(Issue("warning", rel, "Concept body is empty."))
@@ -280,13 +288,16 @@ def scan_bundle(root: str | Path, strict: bool = False) -> BundleReport:
     return report
 
 
-def _looks_like_iso8601(value: str) -> bool:
-    candidate = value.replace("Z", "+00:00")
+def _parse_iso8601(value: str) -> datetime | None:
+    candidate = value.strip().replace("Z", "+00:00")
     try:
-        datetime.fromisoformat(candidate)
-        return True
+        return datetime.fromisoformat(candidate)
     except ValueError:
-        return False
+        return None
+
+
+def _looks_like_iso8601(value: str) -> bool:
+    return _parse_iso8601(value) is not None
 
 
 def _has_external_links(body: str) -> bool:
@@ -593,6 +604,387 @@ def add_log_entry(root: str | Path, entry: str, kind: str = "Update", date: str 
                 text = f"# Bundle Update Log\n\n## {date}\n{new_line}\n\n" + text
     log_path.write_text(text, encoding="utf-8")
     return log_path
+
+
+def bundle_stats(report: BundleReport) -> dict[str, Any]:
+    """Summarize a bundle: counts, type/tag distribution, and link health."""
+    type_counts: dict[str, int] = {}
+    tag_counts: dict[str, int] = {}
+    edge_count = 0
+    rel_by_path = {c.path.resolve(): c.rel for c in report.concepts}
+    for concept in report.concepts:
+        ctype = str(concept.frontmatter.get("type") or "Untyped")
+        type_counts[ctype] = type_counts.get(ctype, 0) + 1
+        tags = concept.frontmatter.get("tags") or []
+        if isinstance(tags, list):
+            for tag in tags:
+                key = str(tag)
+                tag_counts[key] = tag_counts.get(key, 0) + 1
+        for target in _iter_internal_links(concept.body):
+            if rel_by_path.get(_resolve_link(concept.rel, target, report.root)):
+                edge_count += 1
+
+    orphans = sum(1 for issue in report.warnings if "No incoming links" in issue.message)
+    broken = sum(1 for issue in report.warnings if "Broken internal link" in issue.message)
+    return {
+        "root": str(report.root),
+        "concepts": len(report.concepts),
+        "indexes": len(report.indexes),
+        "logs": len(report.logs),
+        "internal_edges": edge_count,
+        "orphan_concepts": orphans,
+        "broken_links": broken,
+        "errors": len(report.errors),
+        "warnings": len(report.warnings),
+        "types": dict(sorted(type_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
+        "tags": dict(sorted(tag_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
+    }
+
+
+def stats_markdown(report: BundleReport) -> str:
+    stats = bundle_stats(report)
+    lines = [
+        "# OKF bundle stats",
+        "",
+        f"Bundle: `{stats['root']}`",
+        "",
+        "| metric | value |",
+        "|---|---:|",
+        f"| Concepts | {stats['concepts']} |",
+        f"| Indexes | {stats['indexes']} |",
+        f"| Logs | {stats['logs']} |",
+        f"| Internal edges | {stats['internal_edges']} |",
+        f"| Orphan concepts | {stats['orphan_concepts']} |",
+        f"| Broken links | {stats['broken_links']} |",
+        f"| Errors | {stats['errors']} |",
+        f"| Warnings | {stats['warnings']} |",
+        "",
+    ]
+    if stats["types"]:
+        lines.extend(["## Concept types", "", "| type | count |", "|---|---:|"])
+        lines.extend(f"| {name} | {count} |" for name, count in stats["types"].items())
+        lines.append("")
+    if stats["tags"]:
+        top_tags = list(stats["tags"].items())[:15]
+        lines.extend(["## Top tags", "", "| tag | count |", "|---|---:|"])
+        lines.extend(f"| {name} | {count} |" for name, count in top_tags)
+        lines.append("")
+    return "\n".join(lines)
+
+
+VISUALIZER_CYTOSCAPE_URL = "https://cdn.jsdelivr.net/npm/cytoscape@3.30.2/dist/cytoscape.min.js"
+VISUALIZER_MARKED_URL = "https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"
+
+_TYPE_PALETTE = [
+    "#2F6F5E", "#C2683B", "#3B6FC2", "#8E5BB5", "#B5495B",
+    "#4C9A5A", "#C9A227", "#5B8DB5", "#A0552B", "#6B6B6B",
+]
+
+
+def _visualization_data(root: str | Path) -> dict[str, Any]:
+    report = scan_bundle(root)
+    rel_by_path = {c.path.resolve(): c.rel for c in report.concepts}
+
+    distinct_types = sorted({str(c.frontmatter.get("type") or "Untyped") for c in report.concepts})
+    type_colors = {t: _TYPE_PALETTE[i % len(_TYPE_PALETTE)] for i, t in enumerate(distinct_types)}
+
+    nodes: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
+    seen_edges: set[tuple[str, str]] = set()
+    for concept in report.concepts:
+        ctype = str(concept.frontmatter.get("type") or "Untyped")
+        tags = concept.frontmatter.get("tags") or []
+        if not isinstance(tags, list):
+            tags = [str(tags)]
+        nodes.append(
+            {
+                "id": concept.concept_id,
+                "path": concept.rel,
+                "label": concept.frontmatter.get("title") or Path(concept.rel).stem.replace("-", " ").title(),
+                "type": ctype,
+                "color": type_colors[ctype],
+                "description": concept.frontmatter.get("description") or "",
+                "resource": str(concept.frontmatter.get("resource") or ""),
+                "tags": [str(t) for t in tags],
+                "body": concept.body,
+            }
+        )
+        for target in _iter_internal_links(concept.body):
+            target_rel = rel_by_path.get(_resolve_link(concept.rel, target, report.root))
+            if not target_rel:
+                continue
+            target_id = target_rel[:-3] if target_rel.endswith(".md") else target_rel
+            edge_key = (concept.concept_id, target_id)
+            if target_id == concept.concept_id or edge_key in seen_edges:
+                continue
+            seen_edges.add(edge_key)
+            edges.append({"source": concept.concept_id, "target": target_id})
+
+    meta = {
+        "name": report.root.name,
+        "concept_count": len(report.concepts),
+        "edge_count": len(edges),
+        "type_colors": type_colors,
+        "error_count": len(report.errors),
+        "warning_count": len(report.warnings),
+        "generated": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+    }
+    return {"nodes": nodes, "edges": edges, "meta": meta}
+
+
+def build_visualization(root: str | Path) -> str:
+    """Return a self-contained HTML page that renders the bundle as a graph."""
+    data = _visualization_data(root)
+    data_json = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+    title = data["meta"]["name"] or "OKF bundle"
+    return (
+        _VISUALIZER_TEMPLATE.replace("__OKF_TITLE__", _html_escape(title))
+        .replace("__OKF_CYTOSCAPE_URL__", VISUALIZER_CYTOSCAPE_URL)
+        .replace("__OKF_MARKED_URL__", VISUALIZER_MARKED_URL)
+        .replace("__OKF_DATA__", data_json)
+    )
+
+
+def write_visualization(root: str | Path, output: str | Path) -> Path:
+    output_path = Path(output).resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(build_visualization(root), encoding="utf-8")
+    return output_path
+
+
+def _html_escape(value: str) -> str:
+    return (
+        value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+_VISUALIZER_TEMPLATE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>__OKF_TITLE__ - OKF bundle</title>
+<script src="__OKF_CYTOSCAPE_URL__"></script>
+<script src="__OKF_MARKED_URL__"></script>
+<style>
+  :root { --brand: #2F6F5E; --bg: #0f1417; --panel: #161d21; --ink: #e7edea; --muted: #9bb0a8; --line: #283437; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--ink); }
+  #app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+  header { padding: 10px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header h1 .brand { color: var(--brand); }
+  header .meta { color: var(--muted); font-size: 12px; }
+  header .controls { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  input, select, button { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font-size: 13px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--brand); }
+  #main { display: grid; grid-template-columns: 1fr 380px; min-height: 0; }
+  #cy { width: 100%; height: 100%; background: radial-gradient(circle at 30% 20%, #14201d, var(--bg)); }
+  #side { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 16px; }
+  #side .empty { color: var(--muted); font-size: 13px; line-height: 1.6; }
+  #side h2 { font-size: 17px; margin: 0 0 4px; }
+  .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #22302c; color: var(--muted); margin: 2px 4px 2px 0; }
+  .pill.type { color: #fff; }
+  .desc { color: var(--muted); font-size: 13px; margin: 8px 0 12px; }
+  .links { margin: 12px 0; }
+  .links h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 12px 0 6px; }
+  .links a, .body a { color: #7fd1b9; cursor: pointer; text-decoration: none; }
+  .links a:hover, .body a:hover { text-decoration: underline; }
+  .links ul { margin: 0; padding-left: 18px; }
+  .body { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 12px; font-size: 13.5px; line-height: 1.6; }
+  .body h1, .body h2, .body h3 { line-height: 1.3; }
+  .body table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  .body th, .body td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+  .body code { background: #0d1316; padding: 1px 5px; border-radius: 4px; }
+  .body pre { background: #0d1316; padding: 10px; border-radius: 8px; overflow: auto; }
+  .legend { display: flex; gap: 6px; flex-wrap: wrap; }
+  .legend .item { display: flex; gap: 5px; align-items: center; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; padding: 2px 6px; border-radius: 6px; }
+  .legend .item.off { opacity: .35; }
+  .legend .dot { width: 10px; height: 10px; border-radius: 50%; }
+  #banner { display: none; padding: 8px 16px; background: #4a2f2f; color: #ffd9d9; font-size: 13px; }
+  .resource { font-size: 12px; word-break: break-all; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1><span class="brand">OKF</span> &middot; __OKF_TITLE__</h1>
+    <span class="meta" id="metaText"></span>
+    <div class="controls">
+      <input id="search" type="search" placeholder="Search concepts..." autocomplete="off" />
+      <select id="layout" title="Layout">
+        <option value="cose">Force</option>
+        <option value="concentric">Concentric</option>
+        <option value="breadthfirst">Hierarchy</option>
+        <option value="circle">Circle</option>
+        <option value="grid">Grid</option>
+      </select>
+      <button id="fit">Fit</button>
+    </div>
+  </header>
+  <div id="banner"></div>
+  <div id="main">
+    <div id="cy"></div>
+    <aside id="side">
+      <div class="legend" id="legend"></div>
+      <div id="detail"><p class="empty">Click a node to inspect a concept. Use search to filter, the legend to toggle types, and links in the panel to traverse the graph.</p></div>
+    </aside>
+  </div>
+</div>
+<script>
+"use strict";
+const DATA = __OKF_DATA__;
+const byId = new Map(DATA.nodes.map(n => [n.id, n]));
+const hiddenTypes = new Set();
+
+document.getElementById("metaText").textContent =
+  DATA.meta.concept_count + " concepts · " + DATA.meta.edge_count + " links · " +
+  DATA.meta.error_count + " errors · " + DATA.meta.warning_count + " warnings";
+
+if (typeof cytoscape === "undefined") {
+  const b = document.getElementById("banner");
+  b.style.display = "block";
+  b.textContent = "Could not load the Cytoscape library from the CDN. This viewer needs internet access to render the graph.";
+}
+
+function normalizePath(base, rel) {
+  const baseDir = base.includes("/") ? base.slice(0, base.lastIndexOf("/")) : "";
+  const parts = (baseDir ? baseDir.split("/") : []);
+  for (const seg of rel.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") parts.pop();
+    else parts.push(seg);
+  }
+  return parts.join("/");
+}
+
+function hrefToId(href, currentPath) {
+  let h = href.split("#")[0].split("?")[0];
+  if (!h.endsWith(".md")) return null;
+  let rel;
+  if (h.startsWith("/")) rel = h.slice(1);
+  else rel = normalizePath(currentPath, h);
+  return rel.replace(/\.md$/, "");
+}
+
+const cy = (typeof cytoscape !== "undefined") ? cytoscape({
+  container: document.getElementById("cy"),
+  elements: [
+    ...DATA.nodes.map(n => ({ data: { id: n.id, label: n.label, color: n.color, type: n.type } })),
+    ...DATA.edges.map(e => ({ data: { id: e.source + "->" + e.target, source: e.source, target: e.target } })),
+  ],
+  style: [
+    { selector: "node", style: {
+      "background-color": "data(color)", "label": "data(label)", "color": "#dfeae6",
+      "font-size": 9, "text-wrap": "wrap", "text-max-width": 120, "text-valign": "bottom",
+      "text-margin-y": 4, "width": 18, "height": 18, "border-width": 1, "border-color": "#0c1113" } },
+    { selector: "edge", style: {
+      "width": 1, "line-color": "#3a4b47", "target-arrow-color": "#3a4b47",
+      "target-arrow-shape": "triangle", "arrow-scale": 0.8, "curve-style": "bezier", "opacity": 0.7 } },
+    { selector: "node.selected", style: { "border-width": 3, "border-color": "#7fd1b9", "width": 26, "height": 26 } },
+    { selector: ".dim", style: { "opacity": 0.12 } },
+    { selector: ".hl", style: { "opacity": 1 } },
+    { selector: ".hidden", style: { "display": "none" } },
+  ],
+  layout: { name: "cose", animate: false, padding: 40 },
+  wheelSensitivity: 0.25,
+}) : null;
+
+function runLayout(name) {
+  if (!cy) return;
+  const opts = { name, animate: false, padding: 40 };
+  if (name === "concentric") { opts.concentric = n => n.degree(); opts.levelWidth = () => 4; }
+  cy.layout(opts).run();
+}
+
+function renderDetail(node) {
+  const n = byId.get(node.id());
+  if (!n) return;
+  const out = DATA.edges.filter(e => e.source === n.id).map(e => e.target);
+  const back = DATA.edges.filter(e => e.target === n.id).map(e => e.source);
+  const tagPills = n.tags.map(t => '<span class="pill">' + escapeHtml(t) + "</span>").join("");
+  const linkList = (ids) => ids.length
+    ? "<ul>" + ids.map(id => '<li><a data-goto="' + escapeHtml(id) + '">' + escapeHtml((byId.get(id) || {}).label || id) + "</a></li>").join("") + "</ul>"
+    : '<p class="empty">None.</p>';
+  const resource = n.resource ? '<p class="resource">Resource: <a href="' + escapeHtml(n.resource) + '" target="_blank" rel="noopener">' + escapeHtml(n.resource) + "</a></p>" : "";
+  const bodyHtml = (typeof marked !== "undefined") ? marked.parse(n.body || "") : "<pre>" + escapeHtml(n.body || "") + "</pre>";
+  document.getElementById("detail").innerHTML =
+    '<h2>' + escapeHtml(n.label) + "</h2>" +
+    '<span class="pill type" style="background:' + n.color + '">' + escapeHtml(n.type) + "</span>" + tagPills +
+    '<p class="desc">' + escapeHtml(n.description) + "</p>" + resource +
+    '<div class="links"><h3>Outgoing (' + out.length + ")</h3>" + linkList(out) +
+    "<h3>Backlinks (" + back.length + ")</h3>" + linkList(back) + "</div>" +
+    '<div class="body">' + bodyHtml + "</div>";
+
+  document.querySelectorAll("#detail [data-goto]").forEach(a =>
+    a.addEventListener("click", () => selectNode(a.getAttribute("data-goto"))));
+  document.querySelectorAll("#detail .body a[href]").forEach(a => {
+    const id = hrefToId(a.getAttribute("href") || "", n.path);
+    if (id && byId.has(id)) a.addEventListener("click", ev => { ev.preventDefault(); selectNode(id); });
+  });
+}
+
+function selectNode(id) {
+  if (!cy) { const n = byId.get(id); if (n) renderDetail({ id: () => id }); return; }
+  const ele = cy.getElementById(id);
+  if (!ele || ele.empty()) return;
+  cy.nodes().removeClass("selected");
+  ele.addClass("selected");
+  cy.animate({ center: { eles: ele }, zoom: Math.max(cy.zoom(), 1.2) }, { duration: 250 });
+  renderDetail(ele);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function applyFilters() {
+  if (!cy) return;
+  const q = document.getElementById("search").value.trim().toLowerCase();
+  cy.batch(() => {
+    cy.nodes().forEach(node => {
+      const n = byId.get(node.id());
+      const typeHidden = hiddenTypes.has(n.type);
+      const matches = !q || (n.label + " " + n.type + " " + n.description + " " + n.tags.join(" ")).toLowerCase().includes(q);
+      node.toggleClass("hidden", typeHidden);
+      node.toggleClass("dim", !typeHidden && !matches);
+      node.toggleClass("hl", !typeHidden && !!q && matches);
+    });
+    cy.edges().forEach(edge => {
+      edge.toggleClass("hidden", edge.source().hasClass("hidden") || edge.target().hasClass("hidden"));
+      edge.toggleClass("dim", !!q && (edge.source().hasClass("dim") || edge.target().hasClass("dim")));
+    });
+  });
+}
+
+function buildLegend() {
+  const legend = document.getElementById("legend");
+  const entries = Object.entries(DATA.meta.type_colors);
+  legend.innerHTML = entries.map(([type, color]) =>
+    '<span class="item" data-type="' + escapeHtml(type) + '"><span class="dot" style="background:' + color + '"></span>' + escapeHtml(type) + "</span>").join("");
+  legend.querySelectorAll(".item").forEach(item => item.addEventListener("click", () => {
+    const type = item.getAttribute("data-type");
+    if (hiddenTypes.has(type)) hiddenTypes.delete(type); else hiddenTypes.add(type);
+    item.classList.toggle("off");
+    applyFilters();
+  }));
+}
+
+buildLegend();
+if (cy) {
+  cy.on("tap", "node", evt => selectNode(evt.target.id()));
+  document.getElementById("search").addEventListener("input", applyFilters);
+  document.getElementById("layout").addEventListener("change", e => runLayout(e.target.value));
+  document.getElementById("fit").addEventListener("click", () => cy.fit(undefined, 40));
+}
+</script>
+</body>
+</html>
+"""
 
 
 def markdown_report(report: BundleReport) -> str:

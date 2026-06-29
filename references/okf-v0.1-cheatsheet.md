@@ -1,3 +1,11 @@
+---
+type: Reference
+title: OKF v0.1 Cheat Sheet
+description: Compact OKF v0.1 authoring reference for conformance, metadata, reserved files, links, citations, indexes, logs, and tooling.
+tags: [okf, cheat-sheet, conformance]
+timestamp: 2026-06-29T18:45:00+02:00
+---
+
 # OKF v0.1 cheat sheet
 
 Source of truth: GoogleCloudPlatform/knowledge-catalog `okf/SPEC.md`.
@@ -74,3 +82,21 @@ Log entries are date-grouped newest first.
 ## 2026-06-29
 * **Creation**: Created initial OKF bundle.
 ```
+
+## Tooling
+
+The plugin's CLI and `okf-tools` MCP server cover the full lifecycle:
+
+| action | CLI | MCP tool |
+|---|---|---|
+| Scaffold | `okf_tool.py new <dir> --title ...` | `okf_scaffold_bundle` |
+| Validate | `okf_tool.py lint <dir>` | `okf_validate_bundle` |
+| Summarize | `okf_tool.py stats <dir>` | `okf_stats` |
+| Generate indexes | `okf_tool.py index <dir>` | `okf_generate_indexes` |
+| Export graph JSON | `okf_tool.py graph <dir>` | `okf_export_graph` |
+| Interactive viewer | `okf_tool.py visualize <dir> -o viz.html` | `okf_visualize` |
+| Add log entry | `okf_tool.py log <dir> "..."` | `okf_add_log_entry` |
+| Package | `okf_tool.py package <dir> out.zip` | `okf_package_bundle` |
+
+See [okf-v0.1-conformance](okf-v0.1-conformance.md) for what the validator
+treats as an error versus a quality warning.

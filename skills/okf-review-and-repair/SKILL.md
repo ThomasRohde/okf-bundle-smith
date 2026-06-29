@@ -1,6 +1,10 @@
 ---
 name: okf-review-and-repair
 description: Validate, audit, and repair an existing OKF bundle for conformance, citations, indexes, logs, links, metadata quality, and graph usefulness.
+type: Skill
+title: OKF Review and Repair Skill
+tags: [okf, skill, validation]
+timestamp: 2026-06-29T18:45:00+02:00
 ---
 
 Use this skill when the user asks to check, lint, validate, review, or improve an OKF bundle.

@@ -1,6 +1,10 @@
 ---
 name: okf-author-concept
 description: Author individual OKF concept documents with correct frontmatter, useful Markdown sections, citations, and cross-links.
+type: Skill
+title: OKF Author Concept Skill
+tags: [okf, skill, authoring]
+timestamp: 2026-06-29T18:45:00+02:00
 ---
 
 Use this skill when editing or creating a single OKF concept document.
