@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "okf-tools": {
+      "command": "python",
+      "args": ["tools/okf_mcp_server.py"],
+      "env": {
+        "PYTHONIOENCODING": "utf-8"
+      }
+    }
+  }
+}

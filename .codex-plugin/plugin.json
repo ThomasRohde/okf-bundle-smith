@@ -1,0 +1,34 @@
+{
+  "name": "okf-bundle-smith",
+  "version": "0.2.0",
+  "description": "Create, enrich, validate, repair, and package Open Knowledge Format bundles from web, repository, and enterprise sources.",
+  "author": {
+    "name": "OKF Bundle Smith maintainers"
+  },
+  "license": "MIT",
+  "keywords": [
+    "okf",
+    "open-knowledge-format",
+    "knowledge-bundles",
+    "context-engineering",
+    "research",
+    "citations",
+    "knowledge-management"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "OKF Bundle Smith",
+    "shortDescription": "Build, validate, and package OKF bundles.",
+    "longDescription": "A Codex plugin for producing Open Knowledge Format bundles with disciplined source research, concept design, frontmatter hygiene, citations, indexes, update logs, validation, graph export, and packaging.",
+    "developerName": "OKF Bundle Smith maintainers",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write", "Interactive"],
+    "brandColor": "#2F6F5E",
+    "defaultPrompt": [
+      "Create an OKF bundle from authoritative sources.",
+      "Review and repair this OKF bundle.",
+      "Update this OKF bundle and add a log entry."
+    ]
+  }
+}
