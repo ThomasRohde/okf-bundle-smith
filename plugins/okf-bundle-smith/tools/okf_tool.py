@@ -104,6 +104,7 @@ def cmd_new(args: argparse.Namespace) -> int:
         title=args.title,
         seed_title=args.seed_title,
         overwrite=args.overwrite,
+        include_agents_md=not args.no_agents_md,
     )
     for path in written:
         print(path)
@@ -192,6 +193,7 @@ def cmd_generate_chatgpt_usage(args: argparse.Namespace) -> int:
         "repo_name": args.repo,
         "repo_root": args.repo_root,
         "write_files": args.write,
+        "include_agents_md": not args.no_agents_md,
         "include_llms_txt": not args.no_llms_txt,
         "include_registry": not args.no_registry,
     }
@@ -254,6 +256,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--title", required=True, help="Human-readable bundle title")
     p.add_argument("--seed-title", help="Title for the initial concept; defaults to --title")
     p.add_argument("--overwrite", action="store_true", help="Allow scaffolding into a non-empty directory")
+    p.add_argument("--no-agents-md", action="store_true", help="Do not create bundle-local AGENTS.md usage guidance")
     p.set_defaults(func=cmd_new)
 
     p = sub.add_parser("attach-github", help="Attach and index a GitHub-hosted OKF bundle")
@@ -324,11 +327,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("bundle", help="Attached alias or local bundle path")
     p.set_defaults(func=cmd_freshness)
 
-    p = sub.add_parser("generate-chatgpt-usage", help="Generate ChatGPT-friendly OKF usage files")
+    p = sub.add_parser("generate-chatgpt-usage", help="Generate ChatGPT/Codex-friendly OKF usage instructions")
     p.add_argument("bundle_path")
     p.add_argument("--repo")
     p.add_argument("--repo-root")
     p.add_argument("--write", action="store_true")
+    p.add_argument("--no-agents-md", action="store_true", help="Do not write or return bundle-local AGENTS.md content")
     p.add_argument("--no-llms-txt", action="store_true")
     p.add_argument("--no-registry", action="store_true")
     p.set_defaults(func=cmd_generate_chatgpt_usage)

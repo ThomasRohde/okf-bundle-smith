@@ -66,6 +66,7 @@ class OkfMcpServerTests(unittest.TestCase):
                     "params": {"name": "okf_scaffold_bundle", "arguments": {"bundle_path": bundle, "title": "Demo"}},
                 })
                 self.assertIn("Scaffolded", scaffold["result"]["content"][0]["text"])  # type: ignore[index]
+                self.assertTrue((Path(bundle) / "AGENTS.md").is_file())
 
                 validate = handle({
                     "jsonrpc": "2.0", "id": 2, "method": "tools/call",

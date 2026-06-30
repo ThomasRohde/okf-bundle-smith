@@ -25,6 +25,7 @@ Use this skill when the user wants to use an existing Open Knowledge Format bund
 10. Use `okf_bundle_overview` for a broad bundle summary before answering open-ended overview questions.
 11. Cite concept IDs or paths after material claims.
 12. Distinguish direct bundle facts, inferences from bundle content, and external knowledge.
+13. If the bundle is durable and likely to be reused, offer to add a scoped `AGENTS.md` instruction so future Codex sessions consult the bundle for relevant tasks.
 
 ## Tool Availability
 
@@ -34,6 +35,7 @@ Prefer MCP tools. If the MCP tools are unavailable in the chat, use the CLI-equi
 python tools/okf_tool.py search <bundle> "<query>"
 python tools/okf_tool.py context <bundle> "<question>" --mode strict
 python tools/okf_tool.py overview <bundle>
+python tools/okf_tool.py generate-chatgpt-usage <bundle> --repo <owner/repo>
 python tools/okf_tool.py mcp-diagnostics
 ```
 
@@ -62,6 +64,19 @@ Prefer concept path citations:
 - `[controls/customer-data-classification]`
 
 For a specific section, use a heading fragment such as `[systems/payment-router#dependencies]`.
+
+## Persistent Repository Instructions
+
+After successfully consuming a durable repo-local or GitHub-hosted bundle, consider whether persistent repo instructions would help. This is useful when:
+
+- the user says to use the bundle going forward;
+- the same bundle is used repeatedly;
+- the bundle is a canonical knowledge source for the repository or project;
+- future tasks about the repository's domain should start from the bundle.
+
+Do not modify repository-level `AGENTS.md` automatically. Ask first and show the intended behavior. Use `okf_generate_chatgpt_usage` or `generate-chatgpt-usage` to produce the `repo_agents_md_snippet`, then add or update a scoped repository `AGENTS.md` section only after the user explicitly agrees.
+
+The instruction should stay narrow: use the bundle first for relevant domain questions, read `index.md` and `log.md`, prefer OKF MCP/CLI search and context tools, cite concept paths, and report freshness, validation, or coverage gaps.
 
 ## Limitations
 

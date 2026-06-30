@@ -30,7 +30,8 @@ Every non-obvious factual claim in a concept body should be backed by a citation
 6. Write `# Citations` in every concept where external claims appear.
 7. Add a `/sources/` directory only when the source itself is valuable to describe as a reusable concept.
 8. Mark freshness-sensitive claims with dates in the prose.
-9. Run validation and a skeptical review pass.
+9. Create or update bundle-local `AGENTS.md` so readers and non-Codex agents can consume the bundle as plain OKF Markdown.
+10. Run validation and a skeptical review pass.
 
 ## Recommended subagent split
 

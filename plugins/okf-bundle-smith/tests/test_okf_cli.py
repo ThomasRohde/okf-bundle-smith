@@ -27,6 +27,7 @@ class OkfCliTests(unittest.TestCase):
             bundle = str(Path(tmp) / "bundle")
             try:
                 self.assertEqual(0, run("new", bundle, "--title", "Demo Bundle"))
+                self.assertTrue((Path(bundle) / "AGENTS.md").is_file())
                 self.assertEqual(0, run("lint", bundle))
                 self.assertEqual(0, run("stats", bundle))
                 self.assertEqual(0, run("index", bundle))

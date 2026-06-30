@@ -103,14 +103,15 @@ def _tool_schema() -> list[dict]:
         },
         {
             "name": "okf_scaffold_bundle",
-            "description": "Create a small OKF bundle skeleton with a seed concept, indexes, and log.md.",
+            "description": "Create a small OKF bundle skeleton with a seed concept, indexes, log.md, and bundle-local AGENTS.md usage guidance.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "bundle_path": {"type": "string", "description": "Path where the bundle should be created."},
                     "title": {"type": "string", "description": "Human-readable bundle title."},
                     "seed_title": {"type": "string", "description": "Optional title for the initial concept."},
-                    "overwrite": {"type": "boolean", "default": False}
+                    "overwrite": {"type": "boolean", "default": False},
+                    "include_agents_md": {"type": "boolean", "default": True}
                 },
                 "required": ["bundle_path", "title"]
             }
@@ -317,7 +318,7 @@ def _tool_schema() -> list[dict]:
         },
         {
             "name": "okf_generate_chatgpt_usage",
-            "description": "Generate ChatGPT-friendly usage instructions and optional helper files for an OKF bundle.",
+            "description": "Generate ChatGPT/Codex-friendly usage instructions, bundle-local AGENTS.md guidance, optional helper files, and a repository AGENTS.md snippet.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -325,6 +326,7 @@ def _tool_schema() -> list[dict]:
                     "repo_name": {"type": "string"},
                     "repo_root": {"type": "string"},
                     "write_files": {"type": "boolean", "default": False},
+                    "include_agents_md": {"type": "boolean", "default": True},
                     "include_llms_txt": {"type": "boolean", "default": True},
                     "include_registry": {"type": "boolean", "default": True}
                 },
@@ -360,6 +362,7 @@ def _call_tool(name: str, arguments: dict) -> dict:
             title=arguments["title"],
             seed_title=arguments.get("seed_title"),
             overwrite=bool(arguments.get("overwrite", False)),
+            include_agents_md=bool(arguments.get("include_agents_md", True)),
         )
         text = "Scaffolded OKF bundle:\n" + "\n".join(str(p) for p in written)
         return _text_result(text)
@@ -458,6 +461,7 @@ def _call_tool(name: str, arguments: dict) -> dict:
             "repo_name": arguments.get("repo_name"),
             "repo_root": arguments.get("repo_root"),
             "write_files": bool(arguments.get("write_files", False)),
+            "include_agents_md": bool(arguments.get("include_agents_md", True)),
             "include_llms_txt": bool(arguments.get("include_llms_txt", True)),
             "include_registry": bool(arguments.get("include_registry", True)),
         }))

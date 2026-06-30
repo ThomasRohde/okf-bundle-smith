@@ -102,8 +102,20 @@ class OkfCoreTests(unittest.TestCase):
 
             self.assertTrue((root / "index.md").is_file())
             self.assertTrue((root / "log.md").is_file())
+            self.assertTrue((root / "AGENTS.md").is_file())
+            self.assertIn("No OKF-specific tools are required.", (root / "AGENTS.md").read_text(encoding="utf-8"))
             self.assertTrue(any(path.name == "eu-ai-act.md" for path in written))
+            self.assertIn(root / "AGENTS.md", written)
             self.assertEqual([], report.errors)
+
+    def test_scaffold_bundle_can_skip_agents_md(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "new-bundle"
+
+            written = scaffold_bundle(root, title="EU AI Act", include_agents_md=False)
+
+            self.assertFalse((root / "AGENTS.md").exists())
+            self.assertNotIn(root / "AGENTS.md", written)
 
     def test_missing_type_is_an_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

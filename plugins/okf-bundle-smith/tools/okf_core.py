@@ -31,6 +31,59 @@ SLUG_RE = re.compile(r"[^a-z0-9]+")
 FUTURE_TIMESTAMP_SKEW_SECONDS = 24 * 60 * 60
 
 
+def bundle_agents_markdown(title: str) -> str:
+    """Return portable agent instructions for a bundle-local AGENTS.md file."""
+    return "\n".join(
+        [
+            "# How to Use This OKF Bundle",
+            "",
+            (
+                f"This directory is an Open Knowledge Format (OKF) bundle for {title}. "
+                "It is designed for direct Markdown consumption by humans and agents."
+            ),
+            "",
+            "## Start Here",
+            "",
+            "- Read `index.md` first to understand the bundle map and entry points.",
+            "- Read `log.md` to understand recent changes, freshness, and known maintenance history.",
+            (
+                "- Follow internal Markdown links to relevant concept files instead of "
+                "loading every file at once."
+            ),
+            "",
+            "## Reading Concepts",
+            "",
+            "- Treat each concept file as one durable idea, asset, process, system, dataset, decision, or source.",
+            (
+                "- Use the YAML frontmatter for identity, type, title, description, tags, "
+                "timestamp, and canonical resource URI when present."
+            ),
+            "- Use bundle-relative paths as concept identifiers, for example `[systems/payment-router]`.",
+            (
+                "- Follow absolute bundle-relative links such as `/systems/payment-router.md` "
+                "as relationships in the concept graph."
+            ),
+            "",
+            "## Answering From This Bundle",
+            "",
+            "- Prefer bundle content over general model knowledge for covered topics.",
+            "- Cite concept paths after bundle-grounded claims.",
+            "- Distinguish direct bundle facts from inference or external knowledge.",
+            "- Report when the bundle is stale, incomplete, contradictory, or missing concepts needed to answer.",
+            "- Use external knowledge only when requested or necessary, and label it clearly.",
+            "",
+            "## Tooling",
+            "",
+            (
+                "No OKF-specific tools are required. If search, graph, MCP, or CLI tools "
+                "are available, they can speed up retrieval, but the source of truth is "
+                "the Markdown bundle itself."
+            ),
+            "",
+        ]
+    )
+
+
 @dataclass
 class Issue:
     severity: str  # error | warning | info
@@ -527,6 +580,7 @@ def scaffold_bundle(
     title: str,
     seed_title: str | None = None,
     overwrite: bool = False,
+    include_agents_md: bool = True,
 ) -> list[Path]:
     root_path = Path(root).resolve()
     if root_path.exists() and any(root_path.iterdir()) and not overwrite:
@@ -581,6 +635,10 @@ def scaffold_bundle(
     log_path = root_path / "log.md"
     log_path.write_text(log_text, encoding="utf-8")
     written = [concept_path, log_path]
+    if include_agents_md:
+        agents_path = root_path / "AGENTS.md"
+        agents_path.write_text(bundle_agents_markdown(title), encoding="utf-8")
+        written.append(agents_path)
     written.extend(generate_indexes(root_path, overwrite=True))
     return written
 

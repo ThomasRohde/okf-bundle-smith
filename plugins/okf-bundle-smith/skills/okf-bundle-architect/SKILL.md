@@ -38,8 +38,9 @@ Always optimize for:
 6. Write concept files with YAML frontmatter and structural Markdown sections.
 7. Add cross-links where they help traversal. Prefer absolute bundle-relative links, e.g. `/systems/payments-api.md`.
 8. Generate `index.md` for the root and every ancestor directory that participates in the concept tree. Keep index entries compact.
-9. Add or update `log.md` with a date-grouped summary.
-10. Run validation and repair until the bundle has no hard errors and only intentional warnings. Use `python tools/okf_tool.py lint <bundle>` when the plugin repo is available.
+9. Create a bundle-local `AGENTS.md` with portable instructions for consuming the bundle as plain OKF Markdown. Do not assume Codex, MCP, CLI, search, graph, or other OKF tools are available.
+10. Add or update `log.md` with a date-grouped summary.
+11. Run validation and repair until the bundle has no hard errors and only intentional warnings. Use `python tools/okf_tool.py lint <bundle>` when the plugin repo is available.
 
 ## Required OKF conformance minimum
 
@@ -96,6 +97,7 @@ Before final response, report:
 - bundle path and packaging format;
 - number of concept files;
 - number of indexes and logs;
+- whether bundle-local `AGENTS.md` usage guidance was created;
 - validation status;
 - open warnings and known limitations;
 - most important source/citation constraints.

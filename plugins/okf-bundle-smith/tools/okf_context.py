@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 import re
 
+from okf_core import bundle_agents_markdown
 from okf_index import build_concept_index
 from okf_retrieve import read_concept, related_concepts, search_concepts
 
@@ -277,6 +278,7 @@ def generate_chatgpt_usage(bundle_path: str | Path, options: dict[str, Any] | No
     write_files = bool(options.get("write_files", False))
     include_llms = bool(options.get("include_llms_txt", True))
     include_registry = bool(options.get("include_registry", True))
+    include_agents = bool(options.get("include_agents_md", True))
 
     chatgpt = f"""# ChatGPT instructions for this OKF bundle
 
@@ -329,11 +331,28 @@ bundles:
     log: {bundle_rel}/log.md
 """
 
+    agents = bundle_agents_markdown(index["bundle"]["title"])
+
+    repo_agents = f"""## OKF bundle: {index['bundle']['title']}
+
+When a task concerns this bundle's domain or asks about knowledge covered by `{bundle_rel}`, use the OKF bundle first.
+
+- Start with `{bundle_rel}/index.md` and `{bundle_rel}/log.md`.
+- Use OKF search/context tools when available; otherwise read the Markdown bundle directly.
+- Cite concept paths such as `[systems/payment-router]` after bundle-grounded claims.
+- Distinguish direct bundle facts from inference or external knowledge.
+- Report freshness, validation, or coverage gaps when relevant.
+"""
+
     created: list[str] = []
     if write_files:
         chatgpt_path = root / "CHATGPT.md"
         chatgpt_path.write_text(chatgpt, encoding="utf-8")
         created.append(str(chatgpt_path))
+        if include_agents:
+            agents_path = root / "AGENTS.md"
+            agents_path.write_text(agents, encoding="utf-8")
+            created.append(str(agents_path))
         if include_llms:
             llms_path = repo_root / "llms.txt"
             llms_path.write_text(llms, encoding="utf-8")
@@ -348,8 +367,13 @@ bundles:
         "bundle_path": str(root),
         "repo_root": str(repo_root),
         "chatgpt_md": chatgpt,
+        "agents_md_path": str(root / "AGENTS.md"),
+        "agents_md": agents if include_agents else None,
         "llms_txt": llms if include_llms else None,
         "okf_registry_yaml": registry if include_registry else None,
+        "repo_agents_md_path": str(repo_root / "AGENTS.md"),
+        "repo_agents_md_snippet": repo_agents,
+        "agents_md_snippet": repo_agents,
         "prompt_example": (
             f"Use the GitHub repo {repo_name}. Use the OKF bundle under {bundle_rel}. "
             "Read index.md and log.md first. Answer from the bundle and cite concept paths."

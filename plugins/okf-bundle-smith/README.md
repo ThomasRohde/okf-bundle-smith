@@ -185,7 +185,11 @@ Inspect bundled MCP configuration and manual stdio fallback:
 python tools\okf_tool.py mcp-diagnostics
 ```
 
-Generate ChatGPT usage instructions:
+Generate ChatGPT/Codex usage instructions. With `--write`, this creates
+bundle-local `CHATGPT.md` and `AGENTS.md` helper files. The output also includes
+an optional `repo_agents_md_snippet`; add that to repository-level `AGENTS.md`
+only after the repository owner agrees to make the bundle a persistent source
+for relevant future tasks.
 
 ```powershell
 python tools\okf_tool.py generate-chatgpt-usage examples\acme-sales-catalog --repo acme/okf-knowledge --write

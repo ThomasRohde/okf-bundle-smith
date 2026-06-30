@@ -31,6 +31,7 @@ immediately and can be enriched incrementally.
 
 ```
 <catalog>/
+  AGENTS.md
   index.md
   log.md
   datasets/      # one concept per dataset/schema
@@ -105,6 +106,8 @@ canonical URI exists.
 * Every table concept has a `# Schema` section.
 * Foreign keys are expressed as links, not prose.
 * Every metric has a formula and named source tables.
+* Bundle-local `AGENTS.md` explains how to consume the catalog as plain OKF
+  Markdown without requiring Codex or OKF-specific tools.
 * Run `python tools/okf_tool.py lint <catalog>` and
   `python tools/okf_tool.py visualize <catalog> -o <artifact-dir>/viz.html` before
   handoff so reviewers can see the join graph.

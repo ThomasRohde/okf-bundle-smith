@@ -111,11 +111,13 @@ class OkfConsumerTests(unittest.TestCase):
             root = Path(tmp)
             write_consumer_bundle(root)
             (root / "CHATGPT.md").write_text("# Helper\n\nThis is not a concept.\n", encoding="utf-8")
+            (root / "AGENTS.md").write_text("# Agent helper\n\nThis is not a concept.\n", encoding="utf-8")
 
             report = scan_bundle(root)
 
             self.assertEqual([], report.errors)
             self.assertFalse(any(concept.rel == "CHATGPT.md" for concept in report.concepts))
+            self.assertFalse(any(concept.rel == "AGENTS.md" for concept in report.concepts))
 
     def test_generate_chatgpt_usage_preview(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -128,6 +130,36 @@ class OkfConsumerTests(unittest.TestCase):
             self.assertEqual([], payload["created"])
             self.assertIn("acme/okf-knowledge", payload["prompt_example"])
             self.assertIn("bundles/payments/index.md", payload["chatgpt_md"])
+            self.assertEqual(str(root / "AGENTS.md"), payload["agents_md_path"])
+            self.assertIn("No OKF-specific tools are required.", payload["agents_md"])
+            self.assertEqual(str(root.parent.parent / "AGENTS.md"), payload["repo_agents_md_path"])
+            self.assertIn("When a task concerns this bundle's domain", payload["repo_agents_md_snippet"])
+            self.assertIn("bundles/payments/index.md", payload["repo_agents_md_snippet"])
+            self.assertFalse((root / "AGENTS.md").exists())
+
+    def test_generate_chatgpt_usage_writes_bundle_agents_md(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "bundle"
+            root.mkdir()
+            write_consumer_bundle(root)
+
+            payload = generate_chatgpt_usage(root, {"write_files": True, "include_llms_txt": False, "include_registry": False})
+
+            self.assertIn(str(root / "AGENTS.md"), payload["created"])
+            self.assertTrue((root / "AGENTS.md").is_file())
+            self.assertIn("How to Use This OKF Bundle", (root / "AGENTS.md").read_text(encoding="utf-8"))
+
+    def test_generate_chatgpt_usage_can_skip_bundle_agents_md(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "bundle"
+            root.mkdir()
+            write_consumer_bundle(root)
+
+            payload = generate_chatgpt_usage(root, {"write_files": True, "include_agents_md": False, "include_llms_txt": False, "include_registry": False})
+
+            self.assertNotIn(str(root / "AGENTS.md"), payload["created"])
+            self.assertIsNone(payload["agents_md"])
+            self.assertFalse((root / "AGENTS.md").exists())
 
     def test_attach_local_and_overview(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
