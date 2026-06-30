@@ -36,6 +36,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   links to a URL-scheme allowlist, and only renders `resource` as a clickable
   link for safe URL schemes.
 - Generated `viz.html` files are ignored as build artifacts.
+- GitHub bundle attachment no longer leaves repository-root bundles in a
+  root-files-only sparse checkout, and now reports incomplete cached checkouts
+  when tracked bundle directories are missing from the working tree.
 
 ## [0.3.0] - 2026-06-29
 

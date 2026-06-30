@@ -58,6 +58,8 @@ class OkfGitTests(unittest.TestCase):
                 repo = Path(args[args.index("-C") + 1])
                 (repo / args[-1]).mkdir(parents=True)
                 return ""
+            if "ls-tree" in args:
+                return ""
             if "rev-parse" in args:
                 return "abc123"
             return ""
@@ -79,6 +81,117 @@ class OkfGitTests(unittest.TestCase):
         self.assertEqual("payments", resolved.alias)
         self.assertEqual("abc123", resolved.commit_sha)
         self.assertTrue(any("sparse-checkout" in call for call in calls))
+
+    def test_root_attach_uses_full_checkout(self) -> None:
+        original_run_git = okf_git._run_git
+        calls: list[list[str]] = []
+
+        def fake_run_git(args: list[str], cwd: Path | None = None) -> str:
+            calls.append(args)
+            if args[0] == "clone":
+                destination = Path(args[-1])
+                (destination / ".git").mkdir(parents=True)
+                return ""
+            if "checkout" in args:
+                repo = Path(args[args.index("-C") + 1])
+                (repo / "concepts").mkdir(parents=True)
+                (repo / "tables").mkdir(parents=True)
+                return ""
+            if "ls-tree" in args:
+                return "concepts\ntables"
+            if "rev-parse" in args:
+                return "def456"
+            return ""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            okf_git._run_git = fake_run_git
+            try:
+                ref = GitHubBundleRef(
+                    owner="acme",
+                    repo="repo",
+                    ref="main",
+                    path=None,
+                    url="https://github.com/acme/repo",
+                )
+                resolved = attach_github_bundle(ref, tmp, alias="root", refresh=True)
+            finally:
+                okf_git._run_git = original_run_git
+
+        self.assertEqual("root", resolved.alias)
+        self.assertEqual("def456", resolved.commit_sha)
+        self.assertFalse(any("sparse-checkout" in call for call in calls))
+
+    def test_root_attach_repairs_stale_sparse_checkout(self) -> None:
+        original_run_git = okf_git._run_git
+        original_git_config_get = okf_git._git_config_get
+        calls: list[list[str]] = []
+
+        def fake_run_git(args: list[str], cwd: Path | None = None) -> str:
+            calls.append(args)
+            if "checkout" in args:
+                repo = Path(args[args.index("-C") + 1])
+                (repo / "concepts").mkdir(parents=True, exist_ok=True)
+                return ""
+            if "ls-tree" in args:
+                return "concepts"
+            if "rev-parse" in args:
+                return "abc789"
+            return ""
+
+        def fake_git_config_get(cache: Path, key: str) -> str | None:
+            self.assertEqual("core.sparseCheckout", key)
+            return "true"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ref = GitHubBundleRef(
+                owner="acme",
+                repo="repo",
+                ref="main",
+                path=None,
+                url="https://github.com/acme/repo",
+            )
+            cache = okf_git._cache_dir(Path(tmp).resolve(), ref)
+            (cache / ".git").mkdir(parents=True)
+            okf_git._run_git = fake_run_git
+            okf_git._git_config_get = fake_git_config_get
+            try:
+                resolved = attach_github_bundle(ref, tmp, alias="root", refresh=True)
+            finally:
+                okf_git._run_git = original_run_git
+                okf_git._git_config_get = original_git_config_get
+
+        self.assertEqual("root", resolved.alias)
+        self.assertEqual("abc789", resolved.commit_sha)
+        self.assertTrue(any(call[-1:] == ["disable"] and "sparse-checkout" in call for call in calls))
+
+    def test_attach_fails_when_tracked_directories_are_missing_from_checkout(self) -> None:
+        original_run_git = okf_git._run_git
+
+        def fake_run_git(args: list[str], cwd: Path | None = None) -> str:
+            if args[0] == "clone":
+                destination = Path(args[-1])
+                (destination / ".git").mkdir(parents=True)
+                return ""
+            if "ls-tree" in args:
+                return "concepts"
+            if "rev-parse" in args:
+                return "abc123"
+            return ""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            okf_git._run_git = fake_run_git
+            try:
+                ref = GitHubBundleRef(
+                    owner="acme",
+                    repo="repo",
+                    ref="main",
+                    path=None,
+                    url="https://github.com/acme/repo",
+                )
+                with self.assertRaisesRegex(RuntimeError, "checkout is incomplete"):
+                    attach_github_bundle(ref, tmp, alias="root")
+            finally:
+                okf_git._run_git = original_run_git
 
 
 if __name__ == "__main__":

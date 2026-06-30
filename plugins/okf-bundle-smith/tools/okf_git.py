@@ -121,6 +121,55 @@ def _run_git(args: list[str], cwd: Path | None = None) -> str:
     return completed.stdout.strip()
 
 
+def _git_config_get(cache: Path, key: str) -> str | None:
+    completed = subprocess.run(
+        ["git", "-C", str(cache), "config", "--get", key],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.strip() or None
+
+
+def _configure_checkout(cache: Path, bundle_path: str | None) -> None:
+    if bundle_path:
+        _run_git(["-C", str(cache), "sparse-checkout", "init", "--cone"])
+        _run_git(["-C", str(cache), "sparse-checkout", "set", bundle_path])
+        return
+
+    # `sparse-checkout init` with no paths includes root files and excludes
+    # root directories, which makes repository-root OKF bundles look empty.
+    if (_git_config_get(cache, "core.sparseCheckout") or "").lower() == "true":
+        _run_git(["-C", str(cache), "sparse-checkout", "disable"])
+
+
+def _tracked_child_dirs(cache: Path, bundle_path: str) -> set[str]:
+    treeish = "HEAD" if bundle_path == "." else f"HEAD:{bundle_path}"
+    try:
+        output = _run_git(["-C", str(cache), "ls-tree", "-d", "--name-only", treeish])
+    except RuntimeError as exc:
+        raise ValueError(f"The selected bundle path does not exist at the checked-out commit: {bundle_path}") from exc
+    return {line.strip().rstrip("/") for line in output.splitlines() if line.strip()}
+
+
+def _ensure_checkout_has_tracked_dirs(cache: Path, bundle_path: str, local_path: Path) -> None:
+    missing = sorted(name for name in _tracked_child_dirs(cache, bundle_path) if not (local_path / name).is_dir())
+    if not missing:
+        return
+    sparse_state = _git_config_get(cache, "core.sparseCheckout")
+    missing_list = ", ".join(missing[:8])
+    if len(missing) > 8:
+        missing_list += ", ..."
+    raise RuntimeError(
+        "The GitHub bundle checkout is incomplete. "
+        f"Tracked directories under {bundle_path} are missing from the working tree: {missing_list}. "
+        f"core.sparseCheckout={sparse_state or 'unset'}."
+    )
+
+
 def _remote_refs(ref: GitHubBundleRef) -> set[str]:
     output = _run_git(["ls-remote", "--heads", "--tags", clone_url(ref)])
     refs: set[str] = set()
@@ -179,17 +228,12 @@ def attach_github_bundle(
     cache.parent.mkdir(parents=True, exist_ok=True)
     repo_url = clone_url(resolved)
 
-    if refresh and cache.exists():
-        _run_git(["-C", str(cache), "fetch", "--depth", "1", "origin", resolved.ref or "HEAD"])
-    elif not (cache / ".git").is_dir():
+    if not (cache / ".git").is_dir():
         _run_git(["clone", "--filter=blob:none", "--no-checkout", repo_url, str(cache)])
-        _run_git(["-C", str(cache), "sparse-checkout", "init", "--cone"])
-        if resolved.path:
-            _run_git(["-C", str(cache), "sparse-checkout", "set", resolved.path])
+        _configure_checkout(cache, resolved.path)
         _run_git(["-C", str(cache), "fetch", "--depth", "1", "origin", resolved.ref or "HEAD"])
     else:
-        if resolved.path:
-            _run_git(["-C", str(cache), "sparse-checkout", "set", resolved.path])
+        _configure_checkout(cache, resolved.path)
         _run_git(["-C", str(cache), "fetch", "--depth", "1", "origin", resolved.ref or "HEAD"])
 
     _run_git(["-C", str(cache), "checkout", "FETCH_HEAD"])
@@ -198,6 +242,7 @@ def attach_github_bundle(
     local_path = cache / bundle_path
     if not local_path.exists():
         raise ValueError(f"The path exists in the reference model but was not checked out: {bundle_path}")
+    _ensure_checkout_has_tracked_dirs(cache, bundle_path, local_path)
 
     from datetime import datetime, timezone
 
