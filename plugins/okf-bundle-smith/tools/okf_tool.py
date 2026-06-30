@@ -19,12 +19,15 @@ from okf_core import (
     write_visualization,
 )
 from okf_consume import (
+    attach_local_bundle,
     attach_github_url,
     bundle_context,
     bundle_freshness,
     chatgpt_usage,
     detach_bundle,
     list_attached_bundles,
+    mcp_diagnostics,
+    overview_bundle,
     read_bundle_concept,
     refresh_bundle,
     related_bundle_concepts,
@@ -120,6 +123,16 @@ def cmd_attach_github(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_attach_local(args: argparse.Namespace) -> int:
+    payload = attach_local_bundle(
+        args.path,
+        alias=args.alias,
+        persist_project=args.persist_project,
+    )
+    print_json(payload)
+    return 0
+
+
 def cmd_list_attached(args: argparse.Namespace) -> int:
     print_json(list_attached_bundles(scope=args.scope))
     return 0
@@ -164,6 +177,11 @@ def cmd_context(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_overview(args: argparse.Namespace) -> int:
+    print_json(overview_bundle(args.bundle))
+    return 0
+
+
 def cmd_freshness(args: argparse.Namespace) -> int:
     print_json(bundle_freshness(args.bundle))
     return 0
@@ -178,6 +196,11 @@ def cmd_generate_chatgpt_usage(args: argparse.Namespace) -> int:
         "include_registry": not args.no_registry,
     }
     print_json(chatgpt_usage(args.bundle_path, options=options))
+    return 0
+
+
+def cmd_mcp_diagnostics(args: argparse.Namespace) -> int:
+    print_json(mcp_diagnostics())
     return 0
 
 
@@ -242,6 +265,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--refresh", action="store_true")
     p.set_defaults(func=cmd_attach_github)
 
+    p = sub.add_parser("attach-local", help="Attach and index a local OKF bundle")
+    p.add_argument("path")
+    p.add_argument("--alias")
+    p.add_argument("--persist-project", action="store_true")
+    p.set_defaults(func=cmd_attach_local)
+
     p = sub.add_parser("list-attached", help="List attached OKF bundles")
     p.add_argument("--scope", choices=["all", "plugin", "project"], default="all")
     p.set_defaults(func=cmd_list_attached)
@@ -287,6 +316,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-log", action="store_true")
     p.set_defaults(func=cmd_context)
 
+    p = sub.add_parser("overview", help="Return a compact bundle overview for orchestration")
+    p.add_argument("bundle", help="Attached alias or local bundle path")
+    p.set_defaults(func=cmd_overview)
+
     p = sub.add_parser("freshness", help="Report OKF bundle freshness")
     p.add_argument("bundle", help="Attached alias or local bundle path")
     p.set_defaults(func=cmd_freshness)
@@ -299,6 +332,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-llms-txt", action="store_true")
     p.add_argument("--no-registry", action="store_true")
     p.set_defaults(func=cmd_generate_chatgpt_usage)
+
+    p = sub.add_parser("mcp-diagnostics", help="Report the bundled okf-tools MCP configuration and manual probe command")
+    p.set_defaults(func=cmd_mcp_diagnostics)
 
     return parser
 

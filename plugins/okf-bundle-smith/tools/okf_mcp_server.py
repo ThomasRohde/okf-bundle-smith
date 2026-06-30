@@ -32,14 +32,18 @@ from okf_core import (  # noqa: E402
     write_visualization,
 )
 from okf_consume import (  # noqa: E402
+    attach_local_bundle,
     attach_github_url,
     bundle_context,
     bundle_freshness,
     chatgpt_usage,
     list_attached_bundles,
+    mcp_diagnostics,
+    overview_bundle,
     read_bundle_concept,
     refresh_bundle,
     related_bundle_concepts,
+    resolve_bundle_index,
     search_bundle,
 )
 
@@ -57,18 +61,44 @@ def _json_result(payload: dict | list) -> dict:
     return _text_result(json.dumps(payload, indent=2, ensure_ascii=False, default=str))
 
 
+def _bundle_path_arg(arguments: dict) -> str:
+    value = arguments.get("bundle_path") or arguments.get("bundle")
+    if not value:
+        raise ValueError("Expected `bundle_path` or `bundle`.")
+    return str(value)
+
+
+def _bundle_arg(arguments: dict) -> str:
+    value = arguments.get("bundle") or arguments.get("bundle_path")
+    if not value:
+        raise ValueError("Expected `bundle` or `bundle_path`.")
+    return str(value)
+
+
+def _readable_bundle_path_arg(arguments: dict) -> str:
+    reference = _bundle_path_arg(arguments)
+    if Path(reference).exists():
+        return reference
+    try:
+        index = resolve_bundle_index(reference)
+    except KeyError:
+        return reference
+    return str(index.get("bundle", {}).get("local_path") or reference)
+
+
 def _tool_schema() -> list[dict]:
     return [
         {
             "name": "okf_validate_bundle",
-            "description": "Validate an Open Knowledge Format bundle and return a Markdown report.",
+            "description": "Validate an Open Knowledge Format bundle and return a Markdown or JSON report.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "bundle_path": {"type": "string", "description": "Path to the OKF bundle directory."},
-                    "strict": {"type": "boolean", "description": "Treat warnings as errors."}
-                },
-                "required": ["bundle_path"]
+                    "bundle": {"type": "string", "description": "Alias for bundle_path."},
+                    "strict": {"type": "boolean", "description": "Treat warnings as errors."},
+                    "format": {"type": "string", "enum": ["markdown", "json"], "default": "markdown"}
+                }
             }
         },
         {
@@ -104,9 +134,9 @@ def _tool_schema() -> list[dict]:
                 "type": "object",
                 "properties": {
                     "bundle_path": {"type": "string", "description": "Path to the OKF bundle directory."},
+                    "bundle": {"type": "string", "description": "Alias for bundle_path."},
                     "format": {"type": "string", "enum": ["markdown", "json"], "default": "markdown"}
-                },
-                "required": ["bundle_path"]
+                }
             }
         },
         {
@@ -115,9 +145,9 @@ def _tool_schema() -> list[dict]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "bundle_path": {"type": "string"}
-                },
-                "required": ["bundle_path"]
+                    "bundle_path": {"type": "string"},
+                    "bundle": {"type": "string", "description": "Alias for bundle_path."}
+                }
             }
         },
         {
@@ -127,9 +157,9 @@ def _tool_schema() -> list[dict]:
                 "type": "object",
                 "properties": {
                     "bundle_path": {"type": "string", "description": "Path to the OKF bundle directory."},
+                    "bundle": {"type": "string", "description": "Alias for bundle_path."},
                     "output_path": {"type": "string", "description": "Where to write the HTML file (default: <bundle>/viz.html)."}
-                },
-                "required": ["bundle_path"]
+                }
             }
         },
         {
@@ -173,6 +203,19 @@ def _tool_schema() -> list[dict]:
                     "refresh": {"type": "boolean", "default": False}
                 },
                 "required": ["url"]
+            }
+        },
+        {
+            "name": "okf_attach_local_bundle",
+            "description": "Attach, validate, and index a local OKF bundle path.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "bundle_path": {"type": "string", "description": "Alias for path."},
+                    "alias": {"type": "string"},
+                    "persist_project": {"type": "boolean", "default": False}
+                }
             }
         },
         {
@@ -262,6 +305,17 @@ def _tool_schema() -> list[dict]:
             }
         },
         {
+            "name": "okf_bundle_overview",
+            "description": "Return validation, freshness, counts, directory groups, central concepts, and entrypoints for an OKF bundle.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bundle": {"type": "string"},
+                    "bundle_path": {"type": "string", "description": "Alias for bundle."}
+                }
+            }
+        },
+        {
             "name": "okf_generate_chatgpt_usage",
             "description": "Generate ChatGPT-friendly usage instructions and optional helper files for an OKF bundle.",
             "inputSchema": {
@@ -276,17 +330,27 @@ def _tool_schema() -> list[dict]:
                 },
                 "required": ["bundle_path"]
             }
+        },
+        {
+            "name": "okf_mcp_diagnostics",
+            "description": "Return the bundled okf-tools MCP declaration and manual stdio probe command.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
         }
     ]
 
 
 def _call_tool(name: str, arguments: dict) -> dict:
     if name == "okf_validate_bundle":
-        report = scan_bundle(arguments["bundle_path"], strict=bool(arguments.get("strict", False)))
+        report = scan_bundle(_readable_bundle_path_arg(arguments), strict=bool(arguments.get("strict", False)))
+        if arguments.get("format", "markdown") == "json":
+            return _json_result(report.to_dict())
         return _text_result(markdown_report(report))
 
     if name == "okf_generate_indexes":
-        written = generate_indexes(arguments["bundle_path"], overwrite=bool(arguments.get("overwrite", True)))
+        written = generate_indexes(_bundle_path_arg(arguments), overwrite=bool(arguments.get("overwrite", True)))
         text = "Generated indexes:\n" + "\n".join(str(p) for p in written)
         return _text_result(text)
 
@@ -301,16 +365,16 @@ def _call_tool(name: str, arguments: dict) -> dict:
         return _text_result(text)
 
     if name == "okf_stats":
-        report = scan_bundle(arguments["bundle_path"])
+        report = scan_bundle(_readable_bundle_path_arg(arguments))
         if arguments.get("format", "markdown") == "json":
             return _text_result(json.dumps(bundle_stats(report), indent=2, ensure_ascii=False))
         return _text_result(stats_markdown(report))
 
     if name == "okf_export_graph":
-        return _text_result(json.dumps(graph(arguments["bundle_path"]), indent=2, ensure_ascii=False))
+        return _text_result(json.dumps(graph(_readable_bundle_path_arg(arguments)), indent=2, ensure_ascii=False))
 
     if name == "okf_visualize":
-        bundle_path = arguments["bundle_path"]
+        bundle_path = _readable_bundle_path_arg(arguments)
         output_path = arguments.get("output_path") or str(Path(bundle_path) / "viz.html")
         out = write_visualization(bundle_path, output_path)
         return _text_result(f"Wrote OKF visualization: {out}")
@@ -338,6 +402,13 @@ def _call_tool(name: str, arguments: dict) -> dict:
             refresh=bool(arguments.get("refresh", False)),
         ))
 
+    if name == "okf_attach_local_bundle":
+        return _json_result(attach_local_bundle(
+            arguments.get("path") or arguments.get("bundle_path"),
+            alias=arguments.get("alias"),
+            persist_project=bool(arguments.get("persist_project", False)),
+        ))
+
     if name == "okf_list_attached_bundles":
         return _json_result(list_attached_bundles(scope=arguments.get("scope", "all")))
 
@@ -347,7 +418,7 @@ def _call_tool(name: str, arguments: dict) -> dict:
     if name == "okf_search_concepts":
         filters = {"type": arguments.get("type"), "tags": arguments.get("tags") or []}
         return _json_result(search_bundle(
-            arguments["bundle"],
+            _bundle_arg(arguments),
             arguments["query"],
             filters=filters,
             max_results=int(arguments.get("max_results", 10)),
@@ -355,21 +426,21 @@ def _call_tool(name: str, arguments: dict) -> dict:
 
     if name == "okf_read_concept":
         return _json_result(read_bundle_concept(
-            arguments["bundle"],
+            _bundle_arg(arguments),
             arguments["concept_id"],
             include_neighbors=bool(arguments.get("include_neighbors", False)),
         ))
 
     if name == "okf_related_concepts":
         return _json_result(related_bundle_concepts(
-            arguments["bundle"],
+            _bundle_arg(arguments),
             arguments["concept_id"],
             depth=int(arguments.get("depth", 1)),
             max_results=int(arguments.get("max_results", 20)),
         ))
 
     if name == "okf_prepare_answer_context":
-        return _json_result(bundle_context(arguments["bundle"], arguments["question"], options={
+        return _json_result(bundle_context(_bundle_arg(arguments), arguments["question"], options={
             "mode": arguments.get("mode", "strict"),
             "max_concepts": int(arguments.get("max_concepts", 8)),
             "link_depth": int(arguments.get("link_depth", 1)),
@@ -377,7 +448,10 @@ def _call_tool(name: str, arguments: dict) -> dict:
         }))
 
     if name == "okf_freshness_report":
-        return _json_result(bundle_freshness(arguments["bundle"]))
+        return _json_result(bundle_freshness(_bundle_arg(arguments)))
+
+    if name == "okf_bundle_overview":
+        return _json_result(overview_bundle(_bundle_arg(arguments)))
 
     if name == "okf_generate_chatgpt_usage":
         return _json_result(chatgpt_usage(arguments["bundle_path"], options={
@@ -387,6 +461,9 @@ def _call_tool(name: str, arguments: dict) -> dict:
             "include_llms_txt": bool(arguments.get("include_llms_txt", True)),
             "include_registry": bool(arguments.get("include_registry", True)),
         }))
+
+    if name == "okf_mcp_diagnostics":
+        return _json_result(mcp_diagnostics())
 
     raise ValueError(f"Unknown tool: {name}")
 

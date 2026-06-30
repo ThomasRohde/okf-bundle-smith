@@ -7,6 +7,6 @@ policy:
   allow_implicit_invocation: true
 dependencies:
   tools:
-    - okf_scaffold_bundle
-    - okf_validate_bundle
-    - okf_add_log_entry
+    - type: mcp
+      value: okf-tools
+      description: OKF Bundle Smith MCP server

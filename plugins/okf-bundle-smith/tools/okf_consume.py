@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import asdict, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 import json
 import os
 import re
 
-from okf_context import generate_chatgpt_usage, prepare_answer_context, freshness_report
+from okf_context import bundle_overview, generate_chatgpt_usage, prepare_answer_context, freshness_report
 from okf_git import attach_github_bundle, parse_github_bundle_url
 from okf_index import build_concept_index, load_index, looks_like_bundle, save_index
 from okf_retrieve import read_concept, related_concepts, search_concepts
@@ -39,6 +40,15 @@ def _indexes_dir() -> Path:
 def _safe_alias(value: str) -> str:
     alias = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip()).strip("-")
     return alias or "bundle"
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _local_source(root: Path) -> dict[str, str]:
+    resolved = str(root.resolve())
+    return {"kind": "local", "url": resolved, "bundle_path": resolved}
 
 
 def _load_state() -> dict[str, Any]:
@@ -152,6 +162,7 @@ def _attachment_from_index(alias: str, resolved: dict[str, Any], index: dict[str
             "errors": validation.get("errors", 0),
             "warnings": validation.get("warnings", 0),
         },
+        "freshness": freshness_report(index),
     }
 
 
@@ -192,6 +203,40 @@ def attach_github_url(
     return attachment
 
 
+def attach_local_bundle(
+    path: str | Path,
+    alias: str | None = None,
+    persist_project: bool = False,
+    project_root: str | Path | None = None,
+) -> dict[str, Any]:
+    root = Path(path).resolve()
+    if not looks_like_bundle(root):
+        raise ValueError("The selected path does not look like an OKF bundle. I found no Markdown concept files and no index.md.")
+
+    bundle_alias = _safe_alias(alias or root.name)
+    source = _local_source(root)
+    index = build_concept_index(root, source=source, alias=bundle_alias)
+    index_path = save_index(index, _index_path(bundle_alias))
+    resolved = {
+        "kind": "local",
+        "owner": None,
+        "repo": None,
+        "requested_ref": None,
+        "commit_sha": None,
+        "bundle_path": str(root),
+        "local_path": str(root),
+        "source_url": str(root),
+        "fetched_at": _now_iso(),
+    }
+    attachment = _attachment_from_index(bundle_alias, resolved, index, index_path)
+    state = _load_state()
+    state["bundles"][bundle_alias] = attachment
+    _save_state(state)
+    if persist_project:
+        _write_project_attachment(attachment, project_root)
+    return attachment
+
+
 def list_attached_bundles(scope: str = "all", project_root: str | Path | None = None) -> dict[str, Any]:
     bundles: list[dict[str, Any]] = []
     if scope in {"all", "plugin"}:
@@ -210,6 +255,17 @@ def refresh_bundle(alias: str) -> dict[str, Any]:
     if alias not in state.get("bundles", {}):
         raise KeyError(f"No attached OKF bundle alias found: {alias}")
     old = state["bundles"][alias]
+    if old.get("kind") == "local":
+        refreshed = attach_local_bundle(old["local_path"], alias=alias)
+        return {
+            "alias": alias,
+            "old_commit_sha": None,
+            "new_commit_sha": None,
+            "changed": False,
+            "concept_count": refreshed.get("concept_count"),
+            "validation": refreshed.get("validation"),
+            "freshness": refreshed.get("freshness"),
+        }
     refreshed = attach_github_url(
         old["source_url"],
         alias=alias,
@@ -243,7 +299,7 @@ def detach_bundle(alias: str, project: bool = False, project_root: str | Path | 
 def resolve_bundle_index(reference: str, project_root: str | Path | None = None) -> dict[str, Any]:
     candidate = Path(reference)
     if candidate.exists():
-        return build_concept_index(candidate, source={"kind": "local", "url": str(candidate.resolve()), "bundle_path": "."}, alias=candidate.name)
+        return build_concept_index(candidate, source=_local_source(candidate), alias=candidate.name)
 
     state = _load_state()
     attached = state.get("bundles", {}).get(reference)
@@ -269,7 +325,10 @@ def resolve_bundle_index(reference: str, project_root: str | Path | None = None)
 
     project = _read_project_attachments(project_root).get("bundles", {}).get(reference)
     if project and project.get("url"):
-        attach_github_url(project["url"], alias=reference, ref=project.get("ref") or None, path=project.get("path") or None)
+        if project.get("kind") == "local":
+            attach_local_bundle(project["url"], alias=reference)
+        else:
+            attach_github_url(project["url"], alias=reference, ref=project.get("ref") or None, path=project.get("path") or None)
         return resolve_bundle_index(reference, project_root)
 
     raise KeyError(f"Could not resolve OKF bundle alias or path: {reference}")
@@ -296,6 +355,11 @@ def bundle_context(reference: str, question: str, options: dict[str, Any] | None
     return prepare_answer_context(index, question, options)
 
 
+def overview_bundle(reference: str) -> dict[str, Any]:
+    index = resolve_bundle_index(reference)
+    return bundle_overview(index)
+
+
 def bundle_freshness(reference: str) -> dict[str, Any]:
     index = resolve_bundle_index(reference)
     return {"bundle": index["bundle"]["alias"], **freshness_report(index)}
@@ -303,3 +367,31 @@ def bundle_freshness(reference: str) -> dict[str, Any]:
 
 def chatgpt_usage(bundle_path: str, options: dict[str, Any] | None = None) -> dict[str, Any]:
     return generate_chatgpt_usage(bundle_path, options)
+
+
+def mcp_diagnostics() -> dict[str, Any]:
+    plugin_root = Path(__file__).resolve().parents[1]
+    mcp_path = plugin_root / ".mcp.json"
+    mcp_config = json.loads(mcp_path.read_text(encoding="utf-8")) if mcp_path.is_file() else {}
+    server = (mcp_config.get("mcpServers") or {}).get("okf-tools") or {}
+    return {
+        "plugin_root": str(plugin_root),
+        "mcp_config_path": str(mcp_path),
+        "server_name": "okf-tools",
+        "declared": bool(server),
+        "command": server.get("command"),
+        "args": server.get("args", []),
+        "env": server.get("env", {}),
+        "manual_probe": {
+            "powershell": (
+                "'{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}' | "
+                f"{server.get('command', 'python')} {str(plugin_root / 'tools' / 'okf_mcp_server.py')}"
+            )
+        },
+        "host_troubleshooting": [
+            "Confirm the plugin is installed and enabled.",
+            "Start a new Codex thread after reinstalling or cache-busting a local plugin.",
+            "Restart the Codex app if skills load but plugin MCP tools are absent.",
+            "If plugin-relative paths are not resolved by the host, configure an absolute path to tools/okf_mcp_server.py.",
+        ],
+    }

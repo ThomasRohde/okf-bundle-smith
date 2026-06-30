@@ -15,14 +15,29 @@ Use this skill when the user wants to use an existing Open Knowledge Format bund
 
 1. Identify the bundle source: attached alias, local path, GitHub URL, or registry entry.
 2. If the user gives a GitHub URL, call `okf_attach_github_bundle` unless the bundle is already attached.
-3. Inspect attach diagnostics: source URL, commit SHA, bundle path, validation errors, and validation warnings.
-4. Read `index.md` and `log.md` when available.
-5. Use `okf_search_concepts` for the user's question or review topic.
-6. Use `okf_read_concept` for high-scoring concepts.
-7. Use `okf_related_concepts` when relationships matter.
-8. Use `okf_prepare_answer_context` before final answers that claim to be bundle-grounded.
-9. Cite concept IDs or paths after material claims.
-10. Distinguish direct bundle facts, inferences from bundle content, and external knowledge.
+3. If the user gives a local path and wants reuse, call `okf_attach_local_bundle`.
+4. Inspect attach diagnostics: source URL, commit SHA when available, bundle path, validation errors, validation warnings, freshness, and concept count.
+5. Read `index.md` and `log.md` when available.
+6. Use `okf_search_concepts` for the user's question or review topic.
+7. Use `okf_read_concept` for high-scoring concepts.
+8. Use `okf_related_concepts` when relationships matter.
+9. Use `okf_prepare_answer_context` before final answers that claim to be bundle-grounded.
+10. Use `okf_bundle_overview` for a broad bundle summary before answering open-ended overview questions.
+11. Cite concept IDs or paths after material claims.
+12. Distinguish direct bundle facts, inferences from bundle content, and external knowledge.
+
+## Tool Availability
+
+Prefer MCP tools. If the MCP tools are unavailable in the chat, use the CLI-equivalent commands before direct file lookup:
+
+```bash
+python tools/okf_tool.py search <bundle> "<query>"
+python tools/okf_tool.py context <bundle> "<question>" --mode strict
+python tools/okf_tool.py overview <bundle>
+python tools/okf_tool.py mcp-diagnostics
+```
+
+Use direct file reads only as a last fallback when neither MCP nor CLI access is available.
 
 ## Answer Modes
 

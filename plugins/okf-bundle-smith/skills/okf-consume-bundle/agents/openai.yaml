@@ -1,0 +1,12 @@
+interface:
+  display_name: OKF Bundle Consumer
+  short_description: Search, read, cite, and prepare context from OKF bundles.
+  brand_color: "#2F6F5E"
+  default_prompt: Attach an OKF bundle and answer from it with citations.
+policy:
+  allow_implicit_invocation: true
+dependencies:
+  tools:
+    - type: mcp
+      value: okf-tools
+      description: OKF Bundle Smith MCP server

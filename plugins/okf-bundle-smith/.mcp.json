@@ -3,6 +3,7 @@
     "okf-tools": {
       "command": "python",
       "args": ["tools/okf_mcp_server.py"],
+      "cwd": ".",
       "env": {
         "PYTHONIOENCODING": "utf-8"
       }

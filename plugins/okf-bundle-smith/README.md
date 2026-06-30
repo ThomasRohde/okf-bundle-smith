@@ -167,6 +167,24 @@ Attach a GitHub-hosted bundle:
 python tools\okf_tool.py attach-github https://github.com/acme/okf-knowledge/tree/main/bundles/payments-architecture --alias payments
 ```
 
+Attach a local bundle for reuse by alias:
+
+```powershell
+python tools\okf_tool.py attach-local examples\acme-sales-catalog --alias sales
+```
+
+Get a machine-readable bundle overview:
+
+```powershell
+python tools\okf_tool.py overview examples\acme-sales-catalog
+```
+
+Inspect bundled MCP configuration and manual stdio fallback:
+
+```powershell
+python tools\okf_tool.py mcp-diagnostics
+```
+
 Generate ChatGPT usage instructions:
 
 ```powershell
@@ -186,6 +204,7 @@ The bundled `okf-tools` MCP server is declared in `.mcp.json` and exposes:
 - `okf_add_log_entry`
 - `okf_package_bundle`
 - `okf_attach_github_bundle`
+- `okf_attach_local_bundle`
 - `okf_list_attached_bundles`
 - `okf_refresh_bundle`
 - `okf_search_concepts`
@@ -193,7 +212,9 @@ The bundled `okf-tools` MCP server is declared in `.mcp.json` and exposes:
 - `okf_related_concepts`
 - `okf_prepare_answer_context`
 - `okf_freshness_report`
+- `okf_bundle_overview`
 - `okf_generate_chatgpt_usage`
+- `okf_mcp_diagnostics`
 
 Every MCP tool has a matching `tools/okf_tool.py` subcommand, so the same
 behavior is available inside Codex and on the command line.
@@ -201,6 +222,8 @@ behavior is available inside Codex and on the command line.
 The server is dependency-light and communicates over stdio JSON-RPC. GitHub bundle attachment shells out to `git` and uses the user's existing credentials; the plugin does not collect or store credentials.
 
 If your Codex client does not resolve plugin-relative MCP command paths, replace the `.mcp.json` server args with an absolute path to `tools/okf_mcp_server.py`.
+
+If skills load but MCP tools are not exposed in a fresh chat, use `mcp-diagnostics` from the CLI to inspect the bundled server declaration. After reinstalling or cache-busting a local plugin, start a new thread; if tools are still absent, restart the Codex app.
 
 ## Optional Hooks
 

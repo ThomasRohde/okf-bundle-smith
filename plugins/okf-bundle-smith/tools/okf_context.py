@@ -32,6 +32,10 @@ def _trim(value: str, max_chars: int) -> str:
     return text[: max(0, max_chars - 1)].rstrip() + "..."
 
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 def freshness_report(index: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
     now = now or datetime.now(timezone.utc)
     timestamps: list[datetime] = []
@@ -60,12 +64,81 @@ def freshness_report(index: dict[str, Any], now: datetime | None = None) -> dict
         warnings.append(f"{older_counts['180']} concept(s) are older than 180 days.")
 
     return {
+        "generated_at": now.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "latest_log_entry": latest_log_entry,
         "oldest_concept_timestamp": min((ts.isoformat() for ts in timestamps), default=None),
         "newest_concept_timestamp": max((ts.isoformat() for ts in timestamps), default=None),
         "concepts_without_timestamp": missing,
         "concepts_older_than_days": older_counts,
         "warnings": warnings,
+    }
+
+
+def bundle_inventory(index: dict[str, Any], central_limit: int = 8) -> dict[str, Any]:
+    type_counts: dict[str, int] = {}
+    tag_counts: dict[str, int] = {}
+    directory_groups: dict[str, int] = {}
+    top_level: dict[str, int] = {}
+    central: list[dict[str, Any]] = []
+
+    for concept in index.get("concepts", []):
+        ctype = str(concept.get("type") or "Untyped")
+        type_counts[ctype] = type_counts.get(ctype, 0) + 1
+        for tag in concept.get("tags", []) or []:
+            tag_key = str(tag)
+            tag_counts[tag_key] = tag_counts.get(tag_key, 0) + 1
+
+        path = str(concept.get("path") or "")
+        directory = str(Path(path).parent).replace("\\", "/")
+        if directory == ".":
+            directory = ""
+        directory_groups[directory or "."] = directory_groups.get(directory or ".", 0) + 1
+        first = path.split("/", 1)[0] if "/" in path else "."
+        top_level[first] = top_level.get(first, 0) + 1
+
+        inlinks = len(concept.get("inlinks", []) or [])
+        outlinks = len(concept.get("outlinks", []) or [])
+        central.append(
+            {
+                "concept_id": concept.get("concept_id"),
+                "title": concept.get("title"),
+                "type": concept.get("type"),
+                "path": concept.get("path"),
+                "inlinks": inlinks,
+                "outlinks": outlinks,
+                "degree": inlinks + outlinks,
+            }
+        )
+
+    return {
+        "concept_count": len(index.get("concepts", [])),
+        "directory_groups": dict(sorted(directory_groups.items())),
+        "top_level_directories": dict(sorted(top_level.items())),
+        "types": dict(sorted(type_counts.items(), key=lambda item: (-item[1], item[0]))),
+        "tags": dict(sorted(tag_counts.items(), key=lambda item: (-item[1], item[0]))),
+        "central_concepts": sorted(central, key=lambda item: (-item["degree"], item["concept_id"] or ""))[:central_limit],
+    }
+
+
+def bundle_overview(index: dict[str, Any]) -> dict[str, Any]:
+    entrypoints: dict[str, Any] = {}
+    for key, citation_id in (("index", "index.md"), ("log", "log.md")):
+        item = ((index.get("entrypoints") or {}).get(key) or {})
+        if item:
+            entrypoints[key] = {
+                "citation_id": citation_id,
+                "path": item.get("path"),
+                "excerpt": _trim(item.get("body", ""), 2000),
+            }
+
+    return {
+        "generated_at": _now_iso(),
+        "bundle": index.get("bundle", {}),
+        "source": index.get("source", {}),
+        "validation": index.get("validation", {}),
+        "freshness": freshness_report(index),
+        "inventory": bundle_inventory(index),
+        "entrypoints": entrypoints,
     }
 
 
@@ -149,20 +222,30 @@ def prepare_answer_context(
     if include_index:
         root_index = ((index.get("entrypoints") or {}).get("index") or {})
         if root_index:
-            entrypoints["index"] = {"path": root_index.get("path"), "excerpt": _trim(root_index.get("body", ""), 2000)}
+            entrypoints["index"] = {
+                "citation_id": "index.md",
+                "path": root_index.get("path"),
+                "excerpt": _trim(root_index.get("body", ""), 2000),
+            }
     if include_log:
         root_log = ((index.get("entrypoints") or {}).get("log") or {})
         if root_log:
-            entrypoints["log"] = {"path": root_log.get("path"), "excerpt": _trim(root_log.get("body", ""), 2000)}
+            entrypoints["log"] = {
+                "citation_id": "log.md",
+                "path": root_log.get("path"),
+                "excerpt": _trim(root_log.get("body", ""), 2000),
+            }
 
     follow_up_candidates = [item for item in sorted(set(follow_up)) if item not in deduped]
     return {
         "bundle": index["bundle"]["alias"],
         "mode": mode,
         "blocked": False,
+        "generated_at": _now_iso(),
         "source": index.get("source", {}),
         "validation": validation,
         "freshness": freshness_report(index),
+        "inventory": bundle_inventory(index),
         "answer_instructions": _answer_instructions(mode),
         "entrypoints": entrypoints,
         "search_results": results,
@@ -187,7 +270,7 @@ def _default_repo_root(bundle_path: Path) -> Path:
 def generate_chatgpt_usage(bundle_path: str | Path, options: dict[str, Any] | None = None) -> dict[str, Any]:
     options = dict(options or {})
     root = Path(bundle_path).resolve()
-    index = build_concept_index(root, source={"kind": "local", "url": str(root), "bundle_path": "."})
+    index = build_concept_index(root, source={"kind": "local", "url": str(root), "bundle_path": str(root)})
     repo_root = Path(options.get("repo_root") or _default_repo_root(root)).resolve()
     bundle_rel = _bundle_relative_path(root, repo_root)
     repo_name = options.get("repo_name") or options.get("repo") or repo_root.name

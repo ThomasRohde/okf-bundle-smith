@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +28,7 @@ class OkfMcpServerTests(unittest.TestCase):
             "okf_add_log_entry",
             "okf_package_bundle",
             "okf_attach_github_bundle",
+            "okf_attach_local_bundle",
             "okf_list_attached_bundles",
             "okf_refresh_bundle",
             "okf_search_concepts",
@@ -34,7 +36,9 @@ class OkfMcpServerTests(unittest.TestCase):
             "okf_related_concepts",
             "okf_prepare_answer_context",
             "okf_freshness_report",
+            "okf_bundle_overview",
             "okf_generate_chatgpt_usage",
+            "okf_mcp_diagnostics",
         ):
             self.assertIn(expected, tools)
 
@@ -53,39 +57,78 @@ class OkfMcpServerTests(unittest.TestCase):
 
     def test_tools_call_scaffold_validate_and_visualize_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            old_data_dir = os.environ.get("OKF_BUNDLE_SMITH_DATA_DIR")
+            os.environ["OKF_BUNDLE_SMITH_DATA_DIR"] = str(Path(tmp) / "data")
             bundle = str(Path(tmp) / "bundle")
+            try:
+                scaffold = handle({
+                    "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                    "params": {"name": "okf_scaffold_bundle", "arguments": {"bundle_path": bundle, "title": "Demo"}},
+                })
+                self.assertIn("Scaffolded", scaffold["result"]["content"][0]["text"])  # type: ignore[index]
 
-            scaffold = handle({
-                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                "params": {"name": "okf_scaffold_bundle", "arguments": {"bundle_path": bundle, "title": "Demo"}},
-            })
-            self.assertIn("Scaffolded", scaffold["result"]["content"][0]["text"])  # type: ignore[index]
+                validate = handle({
+                    "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                    "params": {"name": "okf_validate_bundle", "arguments": {"bundle": bundle, "format": "json"}},
+                })
+                self.assertIn('"error_count"', validate["result"]["content"][0]["text"])  # type: ignore[index]
 
-            validate = handle({
-                "jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                "params": {"name": "okf_validate_bundle", "arguments": {"bundle_path": bundle}},
-            })
-            self.assertIn("validation report", validate["result"]["content"][0]["text"])  # type: ignore[index]
+                viz_out = str(Path(tmp) / "viz.html")
+                visualize = handle({
+                    "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                    "params": {"name": "okf_visualize", "arguments": {"bundle": bundle, "output_path": viz_out}},
+                })
+                self.assertIn("visualization", visualize["result"]["content"][0]["text"])  # type: ignore[index]
+                self.assertTrue(Path(viz_out).is_file())
 
-            viz_out = str(Path(tmp) / "viz.html")
-            visualize = handle({
-                "jsonrpc": "2.0", "id": 3, "method": "tools/call",
-                "params": {"name": "okf_visualize", "arguments": {"bundle_path": bundle, "output_path": viz_out}},
-            })
-            self.assertIn("visualization", visualize["result"]["content"][0]["text"])  # type: ignore[index]
-            self.assertTrue(Path(viz_out).is_file())
+                attach = handle({
+                    "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                    "params": {"name": "okf_attach_local_bundle", "arguments": {"path": bundle, "alias": "demo"}},
+                })
+                self.assertIn('"status": "attached"', attach["result"]["content"][0]["text"])  # type: ignore[index]
 
-            search = handle({
-                "jsonrpc": "2.0", "id": 4, "method": "tools/call",
-                "params": {"name": "okf_search_concepts", "arguments": {"bundle": bundle, "query": "Demo"}},
-            })
-            self.assertIn("results", search["result"]["content"][0]["text"])  # type: ignore[index]
+                validate_alias = handle({
+                    "jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                    "params": {"name": "okf_validate_bundle", "arguments": {"bundle": "demo", "format": "json"}},
+                })
+                self.assertIn('"root": "' + bundle.replace("\\", "\\\\") + '"', validate_alias["result"]["content"][0]["text"])  # type: ignore[index]
+                self.assertIn('"error_count": 0', validate_alias["result"]["content"][0]["text"])  # type: ignore[index]
 
-            context = handle({
-                "jsonrpc": "2.0", "id": 5, "method": "tools/call",
-                "params": {"name": "okf_prepare_answer_context", "arguments": {"bundle": bundle, "question": "What is this?"}},
-            })
-            self.assertIn("answer_instructions", context["result"]["content"][0]["text"])  # type: ignore[index]
+                stats_alias = handle({
+                    "jsonrpc": "2.0", "id": 10, "method": "tools/call",
+                    "params": {"name": "okf_stats", "arguments": {"bundle": "demo", "format": "json"}},
+                })
+                self.assertIn('"concepts": 1', stats_alias["result"]["content"][0]["text"])  # type: ignore[index]
+
+                search = handle({
+                    "jsonrpc": "2.0", "id": 5, "method": "tools/call",
+                    "params": {"name": "okf_search_concepts", "arguments": {"bundle_path": bundle, "query": "Demo"}},
+                })
+                self.assertIn("results", search["result"]["content"][0]["text"])  # type: ignore[index]
+
+                context = handle({
+                    "jsonrpc": "2.0", "id": 6, "method": "tools/call",
+                    "params": {"name": "okf_prepare_answer_context", "arguments": {"bundle": bundle, "question": "What is this?"}},
+                })
+                self.assertIn("answer_instructions", context["result"]["content"][0]["text"])  # type: ignore[index]
+                self.assertIn("inventory", context["result"]["content"][0]["text"])  # type: ignore[index]
+
+                overview = handle({
+                    "jsonrpc": "2.0", "id": 7, "method": "tools/call",
+                    "params": {"name": "okf_bundle_overview", "arguments": {"bundle": bundle}},
+                })
+                self.assertIn("central_concepts", overview["result"]["content"][0]["text"])  # type: ignore[index]
+
+                diagnostics = handle({
+                    "jsonrpc": "2.0", "id": 8, "method": "tools/call",
+                    "params": {"name": "okf_mcp_diagnostics", "arguments": {}},
+                })
+                self.assertIn("manual_probe", diagnostics["result"]["content"][0]["text"])  # type: ignore[index]
+            finally:
+                if old_data_dir is None:
+                    os.environ.pop("OKF_BUNDLE_SMITH_DATA_DIR", None)
+                else:
+                    os.environ["OKF_BUNDLE_SMITH_DATA_DIR"] = old_data_dir
 
 
 if __name__ == "__main__":
