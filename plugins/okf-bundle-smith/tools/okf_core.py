@@ -988,10 +988,20 @@ class OKFViewer {
     const m = this.data.meta && this.data.meta.type_colors;
     return (m && m[t]) || this.TYPE_COLORS[t] || this.TYPE_COLORS.Untyped;
   }
+  nodeRadiusRange() {
+    const count = this.nodes.length;
+    if (count >= 120) return { min:7, max:17 };
+    if (count >= 80) return { min:7.5, max:19 };
+    if (count >= 45) return { min:8.5, max:22 };
+    return { min:10, max:29 };
+  }
   nodeRadius(n) {
     const size = this.props.nodeSizing ?? true;
-    if (!size) return 15;
-    return 11 + Math.sqrt(n.deg) * 7.5;
+    if (!size) return this.nodes.length >= 80 ? 9 : 15;
+    const range = this.nodeRadiusRange();
+    if (this.maxDeg <= 1) return range.min;
+    const t = Math.log1p(n.deg) / Math.log1p(this.maxDeg);
+    return range.min + Math.pow(t, 0.72) * (range.max - range.min);
   }
 
   // ---------- look ----------
@@ -1064,15 +1074,34 @@ class OKFViewer {
     const types = [...new Set(this.nodes.map(n=>n.type))].sort();
     const counts = {}; this.nodes.forEach(n=>counts[n.type]=(counts[n.type]||0)+1);
     this.elChips.innerHTML = '';
+    const bulk = (label, fn, disabled) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.disabled = disabled;
+      b.style.cssText = `display:inline-flex;align-items:center;gap:7px;font-family:'Spline Sans',sans-serif;font-size:11px;font-weight:600;padding:5px 10px;border-radius:999px;cursor:${disabled?'default':'pointer'};border:1px solid var(--line);background:${disabled?'color-mix(in srgb,var(--card) 56%,transparent)':'var(--card)'};color:${disabled?'var(--faint)':'var(--accent)'};opacity:${disabled?0.68:1};box-shadow:0 1px 3px rgba(40,34,20,.05)`;
+      b.onclick = () => { if(disabled)return; fn(); this.afterTypeFilterChange(); };
+      return b;
+    };
+    this.elChips.appendChild(bulk('Select all', () => { this.hiddenTypes.clear(); }, this.hiddenTypes.size===0));
+    this.elChips.appendChild(bulk('Unselect all', () => { this.hiddenTypes = new Set(types); }, this.hiddenTypes.size===types.length));
     for (const t of types) {
       const off = this.hiddenTypes.has(t);
       const c = this.typeColor(t);
       const chip = document.createElement('button');
       chip.style.cssText = `display:inline-flex;align-items:center;gap:7px;font-family:'Spline Sans',sans-serif;font-size:11.5px;font-weight:500;padding:5px 11px 5px 9px;border-radius:999px;cursor:pointer;transition:all .15s;border:1px solid ${off?'var(--line)':'color-mix(in srgb,'+c+' 38%,transparent)'};background:${off?'color-mix(in srgb,var(--card) 70%,transparent)':'color-mix(in srgb,'+c+' 12%,var(--card))'};color:${off?'var(--faint)':'var(--ink)'};opacity:${off?0.6:1}`;
       chip.innerHTML = `<span style="width:9px;height:9px;border-radius:50%;background:${off?'var(--faint)':c};flex:none"></span>${this.esc(t)}<span style="font-family:'Spline Sans Mono',monospace;font-size:10px;color:var(--faint)">${counts[t]}</span>`;
-      chip.onclick = () => { if(off) this.hiddenTypes.delete(t); else this.hiddenTypes.add(t); this.buildChips(); this.draw(); };
+      chip.onclick = () => { if(off) this.hiddenTypes.delete(t); else this.hiddenTypes.add(t); this.afterTypeFilterChange(); };
       this.elChips.appendChild(chip);
     }
+  }
+  afterTypeFilterChange() {
+    if (this.selected && !this.visible(this.selected)) {
+      this.selected = null;
+      this.renderEmpty();
+    }
+    this.buildChips();
+    this.draw();
+    this.drawMini();
   }
 
   // ---------- canvas / camera ----------
@@ -1214,12 +1243,10 @@ class OKFViewer {
       ctx.fillStyle=this.hexA('#ffffff',0.20); ctx.fill();
       ctx.globalAlpha=1;
       // label
-      if (!dim || isFocus) {
-        ctx.font = (isFocus?'600 ':'500 ') + Math.max(11, 12) + "px 'Spline Sans', sans-serif";
-        ctx.textAlign='center';
-        ctx.fillStyle=this.hexA(this.cssVar('--ink'),0.92);
-        ctx.fillText(n.label, p.x, p.y+r+15);
-      }
+      ctx.font = (isFocus?'600 ':'500 ') + Math.max(11, 12) + "px 'Spline Sans', sans-serif";
+      ctx.textAlign='center';
+      ctx.fillStyle=this.hexA(this.cssVar('--ink'), dim&&!isFocus ? 0.38 : 0.92);
+      ctx.fillText(n.label, p.x, p.y+r+15);
     }
     ctx.textAlign='left';
   }
@@ -1314,7 +1341,7 @@ class OKFViewer {
       `<div style="padding:26px 22px;animation:okfRise .4s ease">
         <div style="font-family:'Spline Sans Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:14px">Inspector</div>
         <div style="font-family:Newsreader,serif;font-size:21px;font-weight:500;line-height:1.3;margin-bottom:12px;color:var(--ink)">A living map of the bundle&rsquo;s knowledge.</div>
-        <p style="font-size:13px;line-height:1.65;color:var(--muted);margin:0 0 18px">Each node is one concept. Lines follow the links between them. Larger nodes are more connected.</p>
+        <p style="font-size:13px;line-height:1.65;color:var(--muted);margin:0 0 18px">Each node is one concept. Lines follow the links between them. Larger nodes are more connected, with compact sizing and always-visible labels for visible concepts.</p>
         <div style="display:flex;flex-direction:column;gap:11px">
           ${this.legendRow('&#8853;','Click a node','open its full concept here')}
           ${this.legendRow('&#9906;','Search','dim everything but the matches')}

@@ -32,6 +32,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 - `scan_bundle` now skips dot-directories (`.okf`, `.git`, …), so build-plan
   artifacts and VCS metadata are never treated as bundle content.
+- The HTML visualizer now uses a bounded, log-degree node sizing curve with
+  tighter caps for large bundles, preventing highly connected concepts from
+  turning dense graphs into oversized blobs.
+- Concept labels are always drawn for visible graph nodes. Search, hover, and
+  selection may dim labels, but labels no longer disappear based on graph
+  density or zoom.
+- Type filter chips now include `Select all` and `Unselect all` bulk controls
+  for quickly resetting or clearing graph concept-type visibility.
 - Manifest version bumped to 0.5.0; MCP `serverInfo.version` bumped to 0.5.0.
 
 ## [0.4.0] - 2026-06-29

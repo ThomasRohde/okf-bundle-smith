@@ -249,6 +249,14 @@ class OkfCoreTests(unittest.TestCase):
             self.assertIn("<\\/script>", html)
             # Resource links pass through a protocol allowlist before rendering.
             self.assertIn("safeUrl", html)
+            # Large bundles use a bounded, normalized sizing curve.
+            self.assertIn("nodeRadiusRange", html)
+            self.assertIn("Math.log1p(n.deg) / Math.log1p(this.maxDeg)", html)
+            self.assertIn("always-visible labels", html)
+            self.assertIn("fillText(n.label", html)
+            self.assertIn("Select all", html)
+            self.assertIn("Unselect all", html)
+            self.assertIn("afterTypeFilterChange", html)
 
 
 class OkfPlanCoverageTests(unittest.TestCase):

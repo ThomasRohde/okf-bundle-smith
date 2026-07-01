@@ -91,9 +91,10 @@ URL-scheme allowlist, and `resource` links are validated, before rendering.
 The viewer has two modes: a **Graph** with a concept inspector (frontmatter,
 links to / linked from, rendered body, clickable in-body concept links), and an
 **Overview** dashboard (type distribution, most-connected concepts, tag
-vocabulary, connectivity health). Nodes are sized by degree and colored by `type`
-via the server-provided `meta.type_colors`, so any bundle's types get stable
-colors.
+vocabulary, connectivity health). Nodes are sized by a bounded log-degree curve
+with tighter caps as bundle size grows, visible concepts always draw labels,
+and nodes are colored by `type` via the server-provided `meta.type_colors`, so
+any bundle's types get stable colors.
 
 ## Parallel build
 
