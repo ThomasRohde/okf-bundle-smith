@@ -56,6 +56,12 @@ This directory is an Open Knowledge Format (OKF) bundle. It is designed for dire
 - Cite concept paths after bundle-grounded claims.
 - Distinguish direct bundle facts from inference or external knowledge.
 - Report when the bundle is stale, incomplete, contradictory, or missing concepts needed to answer.
+
+## When The Bundle Points To External Data
+
+- Do not treat missing raw data inside the bundle as proof that the bundle cannot help.
+- Look for dataset, source, system, feed catalog, API, or process concepts that identify where to get the external data.
+- When external retrieval is available and appropriate, use the bundle to choose the source and method, then separate bundle facts from facts observed in the external data.
 ```
 
 `CHATGPT.md` is an agent helper file, not an OKF concept file.

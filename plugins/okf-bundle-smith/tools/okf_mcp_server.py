@@ -21,14 +21,20 @@ sys.path.insert(0, str(_THIS.parent))
 
 from okf_core import (  # noqa: E402
     add_log_entry,
+    build_plan,
     bundle_stats,
+    coverage_markdown,
+    coverage_report,
     generate_indexes,
     graph,
+    install_agents,
     markdown_report,
     package_bundle,
     scan_bundle,
     scaffold_bundle,
     stats_markdown,
+    update_plan_status,
+    write_plan,
     write_visualization,
 )
 from okf_consume import (  # noqa: E402
@@ -340,6 +346,76 @@ def _tool_schema() -> list[dict]:
                 "type": "object",
                 "properties": {}
             }
+        },
+        {
+            "name": "okf_plan_bundle",
+            "description": "Build a parallel-authoring plan: a durable concept ledger with disjoint shard assignments so many subagents can author concepts in parallel without collisions. Writes <bundle>/.okf/plan.csv (fan-out input for spawn_agents_on_csv) and plan.md.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bundle_path": {"type": "string", "description": "Bundle root where the plan is written."},
+                    "inventory": {
+                        "type": "array",
+                        "description": "Concept inventory rows.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {"type": "string", "description": "Bundle-relative concept path (stable ID)."},
+                                "type": {"type": "string"},
+                                "title": {"type": "string"},
+                                "description": {"type": "string"},
+                                "tags": {"type": "array", "items": {"type": "string"}},
+                                "source_ids": {"type": "array", "items": {"type": "string"}},
+                                "depends_on": {"type": "array", "items": {"type": "string"}},
+                                "notes": {"type": "string"}
+                            },
+                            "required": ["path"]
+                        }
+                    },
+                    "inventory_path": {"type": "string", "description": "Alternative to `inventory`: path to a JSON array or CSV file."},
+                    "shards": {"type": "integer", "default": 6, "description": "Number of parallel authoring shards."},
+                    "plan_dir": {"type": "string", "description": "Override the plan directory (default: <bundle>/.okf)."}
+                },
+                "required": ["bundle_path"]
+            }
+        },
+        {
+            "name": "okf_coverage_report",
+            "description": "Audit planned concepts against the files on disk. This is the exhaustiveness gate: it reports missing, incomplete (stub), errored, and unplanned concepts, plus per-shard rollups, so nothing planned is silently dropped.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bundle_path": {"type": "string"},
+                    "bundle": {"type": "string", "description": "Alias for bundle_path."},
+                    "plan_dir": {"type": "string", "description": "Override the plan directory (default: <bundle>/.okf)."},
+                    "format": {"type": "string", "enum": ["markdown", "json"], "default": "markdown"}
+                }
+            }
+        },
+        {
+            "name": "okf_plan_status",
+            "description": "Mark plan rows with a status (planned, in_progress, or done). Authoring workers call this after writing their concept file.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bundle_path": {"type": "string"},
+                    "paths": {"type": "array", "items": {"type": "string"}, "description": "Concept paths to update."},
+                    "status": {"type": "string", "enum": ["planned", "in_progress", "done"], "default": "done"},
+                    "plan_dir": {"type": "string", "description": "Override the plan directory (default: <bundle>/.okf)."}
+                },
+                "required": ["bundle_path", "paths"]
+            }
+        },
+        {
+            "name": "okf_install_agents",
+            "description": "Install the bundled Codex subagent definitions (okf-source-scout, okf-concept-mapper, okf-authoring-worker, okf-citation-auditor, okf-graph-reviewer, okf-skeptical-reviewer) into a .codex/agents directory so Codex can spawn them in parallel.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string", "description": "Target agents directory (default: <cwd>/.codex/agents)."},
+                    "overwrite": {"type": "boolean", "default": False}
+                }
+            }
         }
     ]
 
@@ -469,6 +545,51 @@ def _call_tool(name: str, arguments: dict) -> dict:
     if name == "okf_mcp_diagnostics":
         return _json_result(mcp_diagnostics())
 
+    if name == "okf_plan_bundle":
+        inventory = arguments.get("inventory")
+        if inventory is None and arguments.get("inventory_path"):
+            inv_path = Path(arguments["inventory_path"])
+            text = inv_path.read_text(encoding="utf-8")
+            if inv_path.suffix.lower() == ".csv":
+                import csv
+
+                inventory = list(csv.DictReader(text.splitlines()))
+            else:
+                inventory = json.loads(text)
+        if not isinstance(inventory, list):
+            raise ValueError("Expected `inventory` array or `inventory_path`.")
+        plan = build_plan(inventory, shards=int(arguments.get("shards", 6)))
+        written = write_plan(_bundle_path_arg(arguments), plan, plan_dir=arguments.get("plan_dir"))
+        return _json_result({
+            "csv": str(written["csv"]),
+            "md": str(written["md"]),
+            "planned": len(plan.rows),
+            "shards": plan.shards,
+        })
+
+    if name == "okf_coverage_report":
+        cov = coverage_report(_readable_bundle_path_arg(arguments), plan_dir=arguments.get("plan_dir"))
+        if arguments.get("format", "markdown") == "json":
+            return _json_result(cov)
+        return _text_result(coverage_markdown(cov))
+
+    if name == "okf_plan_status":
+        paths = arguments.get("paths") or []
+        if not isinstance(paths, list) or not paths:
+            raise ValueError("Expected a non-empty `paths` array.")
+        return _json_result(update_plan_status(
+            _bundle_path_arg(arguments),
+            paths,
+            arguments.get("status", "done"),
+            plan_dir=arguments.get("plan_dir"),
+        ))
+
+    if name == "okf_install_agents":
+        return _json_result(install_agents(
+            arguments.get("target"),
+            overwrite=bool(arguments.get("overwrite", False)),
+        ))
+
     raise ValueError(f"Unknown tool: {name}")
 
 
@@ -483,7 +604,7 @@ def handle(request: dict) -> dict | None:
         result = {
             "protocolVersion": "2024-11-05",
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "okf-bundle-smith", "version": "0.4.0"}
+            "serverInfo": {"name": "okf-bundle-smith", "version": "0.5.0"}
         }
     elif method == "tools/list":
         result = {"tools": _tool_schema()}

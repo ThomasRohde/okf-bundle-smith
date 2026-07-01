@@ -8,14 +8,20 @@ from pathlib import Path
 
 from okf_core import (
     add_log_entry,
+    build_plan,
     bundle_stats,
+    coverage_markdown,
+    coverage_report,
     generate_indexes,
     graph,
+    install_agents,
     markdown_report,
     package_bundle,
     scan_bundle,
     scaffold_bundle,
     stats_markdown,
+    update_plan_status,
+    write_plan,
     write_visualization,
 )
 from okf_consume import (
@@ -206,6 +212,62 @@ def cmd_mcp_diagnostics(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_inventory(source: str) -> list[dict]:
+    if source == "-":
+        text = sys.stdin.read()
+        data = json.loads(text)
+    else:
+        path = Path(source)
+        text = path.read_text(encoding="utf-8")
+        if path.suffix.lower() == ".csv":
+            import csv
+
+            return list(csv.DictReader(text.splitlines()))
+        data = json.loads(text)
+    if isinstance(data, dict) and "concepts" in data:
+        data = data["concepts"]
+    if not isinstance(data, list):
+        raise ValueError("Inventory must be a JSON array of concept rows (or a CSV).")
+    return data
+
+
+def cmd_plan(args: argparse.Namespace) -> int:
+    plan = build_plan(_load_inventory(args.inventory), shards=args.shards)
+    written = write_plan(args.bundle, plan, plan_dir=args.plan_dir)
+    payload = {
+        "csv": str(written["csv"]),
+        "md": str(written["md"]),
+        "planned": len(plan.rows),
+        "shards": plan.shards,
+    }
+    if args.format == "json":
+        print_json(payload)
+    else:
+        print(f"Wrote plan: {payload['csv']}")
+        print(f"Wrote plan: {payload['md']}")
+        print(f"Planned {payload['planned']} concepts across {payload['shards']} shards.")
+    return 0
+
+
+def cmd_coverage(args: argparse.Namespace) -> int:
+    cov = coverage_report(args.bundle, plan_dir=args.plan_dir)
+    payload = json.dumps(cov, indent=2, ensure_ascii=False) if args.format == "json" else coverage_markdown(cov)
+    if args.output:
+        Path(args.output).write_text(payload + "\n", encoding="utf-8")
+    print(payload)
+    return 0 if cov["complete"] else 1
+
+
+def cmd_plan_status(args: argparse.Namespace) -> int:
+    print_json(update_plan_status(args.bundle, args.path, args.status, plan_dir=args.plan_dir))
+    return 0
+
+
+def cmd_install_agents(args: argparse.Namespace) -> int:
+    print_json(install_agents(args.target, overwrite=args.overwrite))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="OKF bundle helper tools")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -339,6 +401,33 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("mcp-diagnostics", help="Report the bundled okf-tools MCP configuration and manual probe command")
     p.set_defaults(func=cmd_mcp_diagnostics)
+
+    p = sub.add_parser("plan", help="Build a parallel-authoring plan (concept ledger + shard assignment) from an inventory")
+    p.add_argument("bundle", help="Bundle root where the plan is written (under <bundle>/.okf)")
+    p.add_argument("--inventory", required=True, help="Concept inventory: JSON array file, CSV file, or '-' for JSON on stdin")
+    p.add_argument("--shards", type=int, default=6, help="Number of parallel authoring shards (default: 6, matching Codex max_threads)")
+    p.add_argument("--plan-dir", help="Override the plan directory (default: <bundle>/.okf)")
+    p.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    p.set_defaults(func=cmd_plan)
+
+    p = sub.add_parser("coverage", help="Audit planned concepts against files on disk; exits non-zero until the bundle is exhaustive")
+    p.add_argument("bundle")
+    p.add_argument("--plan-dir", help="Override the plan directory (default: <bundle>/.okf)")
+    p.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    p.add_argument("--output", help="Write the report to a file as well as stdout")
+    p.set_defaults(func=cmd_coverage)
+
+    p = sub.add_parser("plan-status", help="Mark plan rows with a status (planned/in_progress/done)")
+    p.add_argument("bundle")
+    p.add_argument("--path", action="append", required=True, help="Concept path to update; can be repeated")
+    p.add_argument("--status", choices=["planned", "in_progress", "done"], default="done")
+    p.add_argument("--plan-dir", help="Override the plan directory (default: <bundle>/.okf)")
+    p.set_defaults(func=cmd_plan_status)
+
+    p = sub.add_parser("install-agents", help="Install the bundled Codex subagent definitions into .codex/agents")
+    p.add_argument("--target", help="Target agents directory (default: <cwd>/.codex/agents)")
+    p.add_argument("--overwrite", action="store_true", help="Overwrite existing agent files")
+    p.set_defaults(func=cmd_install_agents)
 
     return parser
 

@@ -132,6 +132,7 @@ class OkfConsumerTests(unittest.TestCase):
             self.assertIn("bundles/payments/index.md", payload["chatgpt_md"])
             self.assertEqual(str(root / "AGENTS.md"), payload["agents_md_path"])
             self.assertIn("No OKF-specific tools are required.", payload["agents_md"])
+            self.assertIn("When The Bundle Points To External Data", payload["agents_md"])
             self.assertEqual(str(root.parent.parent / "AGENTS.md"), payload["repo_agents_md_path"])
             self.assertIn("When a task concerns this bundle's domain", payload["repo_agents_md_snippet"])
             self.assertIn("bundles/payments/index.md", payload["repo_agents_md_snippet"])

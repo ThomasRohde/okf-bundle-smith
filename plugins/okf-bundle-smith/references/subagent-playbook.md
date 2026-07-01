@@ -10,6 +10,14 @@ timestamp: 2026-06-29T18:45:00+02:00
 
 Use subagents when a bundle is broad enough that research, validation, and graph design would pollute the main conversation.
 
+These roles ship as installable Codex subagents under the plugin's `agents/`
+directory. Install them into `.codex/agents/` with `okf install-agents` (or the
+`okf_install_agents` MCP tool) so Codex can spawn them in parallel. The
+**authoring worker** is the fan-out target for `spawn_agents_on_csv` over the
+`.okf/plan.csv` ledger produced by `okf plan` — one worker authors one concept
+row. See the `okf-parallel-build` skill for the end-to-end orchestration, and use
+`okf coverage` as the exhaustiveness gate.
+
 ## Recommended roles
 
 ## Source scout

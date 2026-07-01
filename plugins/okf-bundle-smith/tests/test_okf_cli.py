@@ -61,6 +61,51 @@ class OkfCliTests(unittest.TestCase):
                 else:
                     os.environ["OKF_BUNDLE_SMITH_DATA_DIR"] = old_data_dir
 
+    def test_plan_coverage_lifecycle(self) -> None:
+        import json
+
+        concept = "\n".join(
+            [
+                "---",
+                "type: API",
+                "title: Concept",
+                "description: A durable concept used by the coverage test.",
+                "tags: [test]",
+                "timestamp: 2026-06-29T00:00:00Z",
+                "---",
+                "",
+                "# Summary",
+                "",
+                "This concept body is intentionally long enough to clear the lightweight",
+                "usefulness check so coverage classifies it as complete rather than a stub.",
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "bundle"
+            (bundle / "concepts").mkdir(parents=True)
+            inventory = Path(tmp) / "inventory.json"
+            inventory.write_text(
+                json.dumps([{"path": "concepts/x"}, {"path": "concepts/y"}]),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(0, run("plan", str(bundle), "--inventory", str(inventory), "--shards", "2"))
+            self.assertTrue((bundle / ".okf" / "plan.csv").is_file())
+
+            # Nothing authored yet -> coverage gate fails.
+            self.assertEqual(1, run("coverage", str(bundle)))
+
+            (bundle / "concepts" / "x.md").write_text(concept, encoding="utf-8")
+            (bundle / "concepts" / "y.md").write_text(concept.replace("title: Concept", "title: Concept Y"), encoding="utf-8")
+
+            # Every planned concept now exists and is complete.
+            self.assertEqual(0, run("coverage", str(bundle)))
+            self.assertEqual(0, run("plan-status", str(bundle), "--path", "concepts/x.md", "--status", "done"))
+
+            target = Path(tmp) / "codex-agents"
+            self.assertEqual(0, run("install-agents", "--target", str(target)))
+            self.assertTrue((target / "okf-authoring-worker.toml").is_file())
+
     def test_lint_strict_returns_nonzero_on_warnings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

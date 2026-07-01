@@ -1,7 +1,7 @@
 {
   "name": "okf-bundle-smith",
-  "version": "0.4.0+codex.20260630065541",
-  "description": "Create, enrich, validate, repair, consume, visualize, and package Open Knowledge Format bundles from web, repository, GitHub, and enterprise sources.",
+  "version": "0.5.0+codex.20260701090000",
+  "description": "Create, enrich, validate, repair, consume, visualize, and package Open Knowledge Format bundles from web, repository, GitHub, and enterprise sources, including parallel subagent authoring for large bundles.",
   "author": {
     "name": "OKF Bundle Smith maintainers"
   },
@@ -22,7 +22,7 @@
   "interface": {
     "displayName": "OKF Bundle Smith",
     "shortDescription": "Build, validate, consume, and package OKF bundles.",
-    "longDescription": "A Codex plugin for producing and consuming Open Knowledge Format bundles with disciplined source research, concept design, frontmatter hygiene, citations, indexes, update logs, validation, graph export, GitHub attachment, retrieval, context packing, and packaging.",
+    "longDescription": "A Codex plugin for producing and consuming Open Knowledge Format bundles with disciplined source research, concept design, frontmatter hygiene, citations, indexes, update logs, validation, graph export, GitHub attachment, retrieval, context packing, and packaging. For large bundles it fans out authoring across many Codex subagents over a sharded concept ledger and gates on a deterministic coverage audit so no concept is dropped.",
     "developerName": "OKF Bundle Smith maintainers",
     "category": "Productivity",
     "capabilities": [

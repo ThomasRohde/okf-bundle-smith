@@ -39,6 +39,10 @@ class OkfMcpServerTests(unittest.TestCase):
             "okf_bundle_overview",
             "okf_generate_chatgpt_usage",
             "okf_mcp_diagnostics",
+            "okf_plan_bundle",
+            "okf_coverage_report",
+            "okf_plan_status",
+            "okf_install_agents",
         ):
             self.assertIn(expected, tools)
 
@@ -130,6 +134,54 @@ class OkfMcpServerTests(unittest.TestCase):
                     os.environ.pop("OKF_BUNDLE_SMITH_DATA_DIR", None)
                 else:
                     os.environ["OKF_BUNDLE_SMITH_DATA_DIR"] = old_data_dir
+
+
+    def test_plan_coverage_and_install_agents_round_trip(self) -> None:
+        concept = (
+            "---\ntype: API\ntitle: X\ndescription: A durable concept for the "
+            "coverage round trip.\ntags: [test]\ntimestamp: 2026-06-29T00:00:00Z\n---\n\n"
+            "# Summary\n\nThis body is long enough to clear the lightweight usefulness "
+            "check so coverage treats the concept as complete rather than a stub.\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = str(Path(tmp) / "bundle")
+            (Path(bundle) / "concepts").mkdir(parents=True)
+
+            plan = handle({
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": "okf_plan_bundle", "arguments": {
+                    "bundle_path": bundle,
+                    "inventory": [{"path": "concepts/x", "type": "API", "title": "X"}],
+                    "shards": 1,
+                }},
+            })
+            self.assertIn('"planned": 1', plan["result"]["content"][0]["text"])  # type: ignore[index]
+
+            cov = handle({
+                "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "params": {"name": "okf_coverage_report", "arguments": {"bundle": bundle, "format": "json"}},
+            })
+            self.assertIn('"complete": false', cov["result"]["content"][0]["text"])  # type: ignore[index]
+
+            (Path(bundle) / "concepts" / "x.md").write_text(concept, encoding="utf-8")
+
+            cov_done = handle({
+                "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                "params": {"name": "okf_coverage_report", "arguments": {"bundle": bundle, "format": "json"}},
+            })
+            self.assertIn('"complete": true', cov_done["result"]["content"][0]["text"])  # type: ignore[index]
+
+            status = handle({
+                "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                "params": {"name": "okf_plan_status", "arguments": {"bundle_path": bundle, "paths": ["concepts/x.md"], "status": "done"}},
+            })
+            self.assertIn('"updated"', status["result"]["content"][0]["text"])  # type: ignore[index]
+
+            install = handle({
+                "jsonrpc": "2.0", "id": 5, "method": "tools/call",
+                "params": {"name": "okf_install_agents", "arguments": {"target": str(Path(tmp) / "codex-agents")}},
+            })
+            self.assertIn("okf-authoring-worker.toml", install["result"]["content"][0]["text"])  # type: ignore[index]
 
 
 if __name__ == "__main__":

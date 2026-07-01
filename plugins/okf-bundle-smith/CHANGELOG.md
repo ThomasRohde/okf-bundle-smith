@@ -12,6 +12,28 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-01
+
+### Added
+- Parallel build workflow for large bundles. New skill `okf-parallel-build`
+  orchestrates Codex subagents that fan out authoring over a durable, sharded
+  concept ledger and reconcile deterministically so no concept is dropped.
+- Concept ledger tools: `plan` / `okf_plan_bundle` build `<bundle>/.okf/plan.csv`
+  (fan-out input for `spawn_agents_on_csv`) and `plan.md`, assigning disjoint
+  shards so parallel workers never collide on files.
+- Exhaustiveness gate: `coverage` / `okf_coverage_report` diffs planned concepts
+  against files on disk (missing, incomplete stubs, errored, unplanned, per-shard
+  rollups, and status mismatches) and exits non-zero until the bundle is complete.
+- `plan-status` / `okf_plan_status` lets authoring workers mark plan rows done.
+- Six bundled Codex subagent definitions under `agents/` (source scout, concept
+  mapper, authoring worker, citation auditor, graph reviewer, skeptical reviewer),
+  installable into `.codex/agents/` via `install-agents` / `okf_install_agents`.
+
+### Changed
+- `scan_bundle` now skips dot-directories (`.okf`, `.git`, …), so build-plan
+  artifacts and VCS metadata are never treated as bundle content.
+- Manifest version bumped to 0.5.0; MCP `serverInfo.version` bumped to 0.5.0.
+
 ## [0.4.0] - 2026-06-29
 
 ### Added

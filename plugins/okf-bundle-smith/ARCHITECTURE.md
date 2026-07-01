@@ -36,9 +36,10 @@ Repository root:
 Plugin root (`plugins/okf-bundle-smith`):
 .codex-plugin/plugin.json          Plugin manifest (skills, MCP wiring, interface)
 .mcp.json                          MCP server declaration (okf-tools, stdio)
+agents/                            Codex subagent definitions (TOML) for parallel authoring
 assets/logo.svg                    Brand asset referenced by the manifest
 skills/                            Model-facing guidance (the "how to do it well")
-tools/okf_core.py                  Engine: parse, scan/validate, index, graph, stats, visualize, package
+tools/okf_core.py                  Engine: parse, scan/validate, index, graph, stats, visualize, package, plan, coverage
 tools/okf_tool.py                  CLI front end over the engine
 tools/okf_mcp_server.py            Minimal stdio JSON-RPC MCP server over the engine
 hooks/                             Optional session-context and stop-review hooks
@@ -62,6 +63,10 @@ The engine is the single source of truth. Key entry points:
 | `add_log_entry` | Inserts a dated entry into `log.md` |
 | `scaffold_bundle` | Creates a minimal valid bundle |
 | `package_bundle` | Zips or tars a bundle |
+| `build_plan` / `write_plan` / `read_plan` | Concept ledger with disjoint shard assignment (`.okf/plan.csv` + `plan.md`) |
+| `coverage_report` / `coverage_markdown` | Diff the plan against files on disk (the exhaustiveness gate) |
+| `update_plan_status` | Mark plan rows planned/in_progress/done |
+| `install_agents` | Copy bundled Codex subagent TOMLs into `.codex/agents/` |
 
 Data model: `Concept` (path, frontmatter, body), `Issue` (severity, path,
 message), and `BundleReport` (concepts, issues, indexes, logs).
@@ -89,6 +94,30 @@ links to / linked from, rendered body, clickable in-body concept links), and an
 vocabulary, connectivity health). Nodes are sized by degree and colored by `type`
 via the server-provided `meta.type_colors`, so any bundle's types get stable
 colors.
+
+## Parallel build
+
+Large bundles overflow a single agent context, so concepts get dropped. The
+parallel-build path moves coordination state onto disk and fans out:
+
+1. `build_plan` turns a concept inventory into a **ledger** (`.okf/plan.csv`),
+   assigning each concept a disjoint `shard`. Because every concept path is
+   unique and index files are generated centrally, parallel workers never
+   collide — no git worktrees are required for authoring.
+2. Codex spawns one `okf-authoring-worker` subagent per CSV row
+   (`spawn_agents_on_csv`); each writes a single concept file.
+3. `coverage_report` diffs the plan against files on disk. This deterministic
+   audit — not any single agent's diligence — is what makes the bundle provably
+   exhaustive. The reconcile pass reuses `scan_bundle`, `generate_indexes`, and
+   `graph`.
+
+The `agents/` TOMLs (`okf-source-scout`, `okf-concept-mapper`,
+`okf-authoring-worker`, `okf-citation-auditor`, `okf-graph-reviewer`,
+`okf-skeptical-reviewer`) map the roles in
+[references/subagent-playbook.md](references/subagent-playbook.md) to installable
+Codex subagents. The `okf-parallel-build` skill is the orchestration playbook.
+Plan artifacts live under the dot-directory `.okf/`, which `scan_bundle` skips so
+they are never treated as bundle content.
 
 ## MCP server
 

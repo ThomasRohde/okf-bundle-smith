@@ -12,13 +12,19 @@ sys.path.insert(0, str(ROOT / "tools"))
 from okf_core import (  # noqa: E402
     MD_LINK_RE,
     add_log_entry,
+    build_plan,
     build_visualization,
     bundle_stats,
+    coverage_report,
     generate_indexes,
     graph,
+    install_agents,
     package_bundle,
+    plan_csv_path,
     scan_bundle,
     scaffold_bundle,
+    update_plan_status,
+    write_plan,
 )
 
 
@@ -104,6 +110,7 @@ class OkfCoreTests(unittest.TestCase):
             self.assertTrue((root / "log.md").is_file())
             self.assertTrue((root / "AGENTS.md").is_file())
             self.assertIn("No OKF-specific tools are required.", (root / "AGENTS.md").read_text(encoding="utf-8"))
+            self.assertIn("When The Bundle Points To External Data", (root / "AGENTS.md").read_text(encoding="utf-8"))
             self.assertTrue(any(path.name == "eu-ai-act.md" for path in written))
             self.assertIn(root / "AGENTS.md", written)
             self.assertEqual([], report.errors)
@@ -242,6 +249,138 @@ class OkfCoreTests(unittest.TestCase):
             self.assertIn("<\\/script>", html)
             # Resource links pass through a protocol allowlist before rendering.
             self.assertIn("safeUrl", html)
+
+
+class OkfPlanCoverageTests(unittest.TestCase):
+    def _inventory(self) -> list[dict]:
+        return [
+            {"path": "concepts/alpha", "type": "API", "title": "Alpha", "description": "A.", "source_ids": ["s1"]},
+            {"path": "concepts/beta", "type": "API", "title": "Beta", "description": "B.", "source_ids": "s2"},
+            {"path": "concepts/gamma", "type": "API", "title": "Gamma", "description": "C."},
+            {"path": "concepts/delta", "type": "API", "title": "Delta", "description": "D."},
+        ]
+
+    def test_build_plan_assigns_balanced_shards_and_normalizes_paths(self) -> None:
+        plan = build_plan(self._inventory(), shards=2)
+
+        self.assertEqual(2, plan.shards)
+        self.assertEqual({0, 1}, {row.shard for row in plan.rows})
+        self.assertTrue(all(row.path.endswith(".md") for row in plan.rows))
+        # source_ids accepts list or delimited string.
+        beta = next(row for row in plan.rows if row.path == "concepts/beta.md")
+        self.assertEqual(["s2"], beta.source_ids)
+
+    def test_build_plan_rejects_duplicate_paths(self) -> None:
+        rows = [{"path": "concepts/a"}, {"path": "concepts/a.md"}]
+        with self.assertRaises(ValueError):
+            build_plan(rows)
+
+    def test_build_plan_rejects_paths_outside_bundle(self) -> None:
+        bad_paths = [
+            "../outside",
+            "concepts/../outside",
+            "/absolute/concept",
+            "\\absolute\\concept",
+            "C:/tmp/outside",
+            "C:\\tmp\\outside",
+            "C:tmp/outside",
+            ".okf/not-a-concept",
+            "CHATGPT.md",
+        ]
+        for path in bad_paths:
+            with self.subTest(path=path):
+                with self.assertRaises(ValueError):
+                    build_plan([{"path": path}])
+
+    def test_plan_artifacts_live_outside_the_scanned_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_concept(root / "concepts" / "alpha.md", title="Alpha")
+            write_plan(root, build_plan(self._inventory(), shards=2))
+
+            report = scan_bundle(root)
+
+            # plan.md under .okf/ must not be parsed as a concept nor raise errors.
+            self.assertEqual([], report.errors)
+            self.assertTrue(all(".okf" not in c.rel for c in report.concepts))
+            self.assertTrue(plan_csv_path(root).is_file())
+
+    def test_coverage_flags_missing_incomplete_extra_and_status_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_plan(root, build_plan(self._inventory(), shards=2))
+
+            # alpha: complete. beta: stub (incomplete). gamma+delta: missing.
+            write_concept(root / "concepts" / "alpha.md", title="Alpha")
+            (root / "concepts" / "beta.md").write_text(
+                "---\ntype: API\n---\n\n# Beta\n", encoding="utf-8"
+            )
+            # An unplanned concept on disk shows up as extra.
+            write_concept(root / "concepts" / "surprise.md", title="Surprise")
+            # Worker wrongly marked the stub done -> status mismatch.
+            update_plan_status(root, ["concepts/beta.md"], "done")
+
+            cov = coverage_report(root)
+
+            self.assertFalse(cov["complete"])
+            self.assertEqual(cov["counts"]["complete"], 1)
+            self.assertIn("concepts/beta.md", cov["incomplete"])
+            self.assertEqual(sorted(cov["missing"]), ["concepts/delta.md", "concepts/gamma.md"])
+            self.assertIn("concepts/surprise.md", cov["extra"])
+            self.assertEqual([m["path"] for m in cov["status_mismatch"]], ["concepts/beta.md"])
+
+    def test_coverage_rejects_existing_plan_rows_that_escape_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "bundle"
+            root.mkdir()
+            outside = Path(tmp) / "outside.md"
+            write_concept(outside, title="Outside")
+            plan_dir = root / ".okf"
+            plan_dir.mkdir()
+            (plan_dir / "plan.csv").write_text("path\n../outside.md\n", encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                coverage_report(root)
+
+    def test_coverage_does_not_count_unscanned_paths_as_complete(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan_dir = root / ".okf"
+            plan_dir.mkdir()
+            (plan_dir / "plan.csv").write_text("path\n.hidden/alpha.md\n", encoding="utf-8")
+            write_concept(root / ".hidden" / "alpha.md", title="Hidden")
+
+            with self.assertRaises(ValueError):
+                coverage_report(root)
+
+    def test_coverage_is_complete_when_every_planned_concept_is_authored(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_plan(root, build_plan(self._inventory(), shards=2))
+            for name in ("alpha", "beta", "gamma", "delta"):
+                write_concept(root / "concepts" / f"{name}.md", title=name.title())
+
+            cov = coverage_report(root)
+
+            self.assertTrue(cov["complete"])
+            self.assertEqual(cov["counts"]["missing"], 0)
+            self.assertEqual(cov["counts"]["incomplete"], 0)
+            self.assertEqual(cov["planned"], 4)
+
+    def test_install_agents_copies_bundled_definitions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "agents"
+
+            result = install_agents(target)
+
+            names = {Path(p).name for p in result["installed"]}
+            self.assertIn("okf-authoring-worker.toml", names)
+            self.assertIn("okf-concept-mapper.toml", names)
+            self.assertTrue((target / "okf-authoring-worker.toml").is_file())
+            # Re-running without overwrite skips existing files.
+            again = install_agents(target)
+            self.assertEqual(again["installed"], [])
+            self.assertTrue(again["skipped"])
 
 
 if __name__ == "__main__":

@@ -17,8 +17,9 @@ The plugin is built around one practical idea: OKF is easy to write syntacticall
 | area | contents |
 |---|---|
 | Plugin manifest | `.codex-plugin/plugin.json` with skills, MCP server wiring, brand assets, and per-skill Codex metadata |
-| Skills | Bundle architecture, web research, concept authoring, review/repair, update, and data-catalog workflows |
-| MCP tools | Scaffold, validate, stats, generate indexes, export graph JSON, visualize (HTML), add log entries, package bundles, attach GitHub bundles, search/read/related/context/freshness |
+| Skills | Bundle architecture, web research, concept authoring, review/repair, update, data-catalog, and parallel-build workflows |
+| Codex subagents | `agents/` role definitions (source scout, concept mapper, authoring worker, citation auditor, graph reviewer, skeptical reviewer) for parallel authoring of large bundles |
+| MCP tools | Scaffold, validate, stats, generate indexes, export graph JSON, visualize (HTML), add log entries, package bundles, attach GitHub bundles, search/read/related/context/freshness, plan/coverage, and subagent install |
 | CLI tools | Dependency-light Python commands for local use outside Codex, including producer and consumer workflows |
 | Visualizer | Self-contained interactive HTML viewer: force-directed Graph + Overview dashboard, dependency-free (canvas renderer + built-in Markdown) |
 | References | OKF cheat sheet, conformance map, concept-type catalog, source policy, quality rubric, subagent playbook |
@@ -141,6 +142,52 @@ Package a bundle:
 python tools\okf_tool.py package examples\minimal-bundle .\tmp\minimal-okf-bundle.zip
 ```
 
+## Build A Large Bundle In Parallel
+
+For bundles too large for a single agent context, fan out authoring across many
+Codex subagents over a durable, sharded plan, then gate on a deterministic
+coverage audit so no concept is dropped. See the `okf-parallel-build` skill for
+the full orchestration playbook. The mechanics:
+
+Install the bundled Codex subagents once (into `.codex/agents/`):
+
+```powershell
+python tools\okf_tool.py install-agents
+```
+
+Build a plan (concept ledger) from an inventory and assign shards:
+
+```powershell
+python tools\okf_tool.py plan .\tmp\eu-ai-act --inventory .\tmp\inventory.json --shards 10
+```
+
+The inventory is a JSON array (or CSV) of concept rows, each with at least a
+`path`; `type`, `title`, `description`, `tags`, `source_ids`, and `depends_on`
+are optional. This writes `<bundle>/.okf/plan.csv` (the fan-out input for Codex's
+`spawn_agents_on_csv`) and a human-readable `plan.md`.
+
+Audit coverage — the exhaustiveness gate. It exits non-zero until every planned
+concept exists and is complete:
+
+```powershell
+python tools\okf_tool.py coverage .\tmp\eu-ai-act
+```
+
+Authoring workers mark their row done as they finish:
+
+```powershell
+python tools\okf_tool.py plan-status .\tmp\eu-ai-act --path concepts/high-risk-systems.md --status done
+```
+
+Raise Codex's parallelism ceiling (default `max_threads` is 6) in
+`~/.codex/config.toml`:
+
+```toml
+[agents]
+max_threads = 10
+max_depth = 1
+```
+
 ## Consume An OKF Bundle
 
 Search a local bundle:
@@ -219,6 +266,10 @@ The bundled `okf-tools` MCP server is declared in `.mcp.json` and exposes:
 - `okf_bundle_overview`
 - `okf_generate_chatgpt_usage`
 - `okf_mcp_diagnostics`
+- `okf_plan_bundle`
+- `okf_coverage_report`
+- `okf_plan_status`
+- `okf_install_agents`
 
 Every MCP tool has a matching `tools/okf_tool.py` subcommand, so the same
 behavior is available inside Codex and on the command line.

@@ -8,9 +8,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Iterable
 from urllib.parse import urlparse
+import csv
+import io
 import json
 import os
 import re
@@ -71,6 +73,29 @@ def bundle_agents_markdown(title: str) -> str:
             "- Distinguish direct bundle facts from inference or external knowledge.",
             "- Report when the bundle is stale, incomplete, contradictory, or missing concepts needed to answer.",
             "- Use external knowledge only when requested or necessary, and label it clearly.",
+            "",
+            "## When The Bundle Points To External Data",
+            "",
+            (
+                "- Do not treat missing raw data inside the bundle as proof that the "
+                "bundle cannot help. Many OKF bundles are catalogs or playbooks that "
+                "point to canonical feeds, APIs, repositories, datasets, or documents."
+            ),
+            (
+                "- If a user asks for an operational answer that requires rows, records, "
+                "live state, or source files, first look for dataset, source, system, "
+                "feed catalog, API, or process concepts that identify where to get the "
+                "external data."
+            ),
+            (
+                "- When external retrieval is available and appropriate, use the bundle "
+                "to choose the source and method, then clearly separate bundle facts from "
+                "facts observed in the external data."
+            ),
+            (
+                "- If external retrieval is not available, explain the exact source or "
+                "process the bundle points to instead of saying only that the bundle lacks data."
+            ),
             "",
             "## Tooling",
             "",
@@ -259,7 +284,12 @@ def scan_bundle(root: str | Path, strict: bool = False) -> BundleReport:
         report.issues.append(Issue("error", str(root_path), "Bundle path is not a directory."))
         return report
 
-    markdown_files = sorted(root_path.rglob("*.md"))
+    markdown_files = sorted(
+        path
+        for path in root_path.rglob("*.md")
+        # Skip dot-directories (.okf build plans, .git, etc.); they are not bundle content.
+        if not any(part.startswith(".") for part in path.relative_to(root_path).parts[:-1])
+    )
     if not markdown_files:
         report.issues.append(Issue("warning", ".", "No Markdown files found."))
 
@@ -1433,3 +1463,396 @@ def markdown_report(report: BundleReport) -> str:
         marker = "ERROR" if issue.severity == "error" else "WARN" if issue.severity == "warning" else "INFO"
         lines.append(f"* **{marker}** `{issue.path}` - {issue.message}")
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- #
+# Parallel build: plan (concept ledger) and coverage (exhaustiveness gate)
+#
+# For large bundles a single agent context cannot hold the whole concept graph,
+# so concepts get dropped. These helpers move coordination state onto disk: a
+# plan is a durable ledger of every concept to author, one row per concept, with
+# a `shard` column so parallel workers own disjoint files. `coverage_report`
+# then diffs the plan against the files on disk, which is what makes the result
+# provably exhaustive rather than dependent on a single agent's diligence.
+# --------------------------------------------------------------------------- #
+
+PLAN_DIRNAME = ".okf"
+PLAN_CSV_NAME = "plan.csv"
+PLAN_MD_NAME = "plan.md"
+PLAN_STATUSES = ("planned", "in_progress", "done")
+PLAN_LIST_SEP = ";"
+PLAN_FIELDS = [
+    "path",
+    "type",
+    "title",
+    "description",
+    "tags",
+    "source_ids",
+    "depends_on",
+    "shard",
+    "status",
+    "notes",
+]
+DEFAULT_PLAN_SHARDS = 6
+AGENT_TEMPLATE_DIRNAME = "agents"
+# A present concept file counts as incomplete (a stub, not a finished concept)
+# when scan_bundle raises any of these warnings against it.
+_STUB_WARNING_MARKERS = (
+    "body is empty",
+    "body is very short",
+    "Recommended frontmatter field",
+    "External links found but no",
+)
+
+
+@dataclass
+class PlanRow:
+    path: str
+    type: str = ""
+    title: str = ""
+    description: str = ""
+    tags: list[str] = field(default_factory=list)
+    source_ids: list[str] = field(default_factory=list)
+    depends_on: list[str] = field(default_factory=list)
+    shard: int = 0
+    status: str = "planned"
+    notes: str = ""
+
+
+@dataclass
+class Plan:
+    rows: list[PlanRow] = field(default_factory=list)
+    shards: int = 1
+
+
+def normalize_concept_path(value: Any) -> str:
+    original = str(value or "").strip()
+    raw = original.replace("\\", "/")
+    if not raw:
+        raise ValueError("Plan row is missing a concept `path`.")
+    if PurePosixPath(raw).is_absolute() or PureWindowsPath(raw).drive:
+        raise ValueError(f"Plan path must be bundle-relative, not absolute: {original}")
+    parts = [part for part in raw.split("/") if part and part != "."]
+    if not parts or any(part == ".." for part in parts):
+        raise ValueError(f"Plan path must stay inside the bundle: {original}")
+    if any(part.startswith(".") for part in parts[:-1]):
+        raise ValueError(f"Plan path must not use dot-directories skipped by bundle scans: {original}")
+    raw = "/".join(parts)
+    if not raw.endswith(".md"):
+        raw += ".md"
+    name = raw.rsplit("/", 1)[-1]
+    if name in RESERVED_FILENAMES or name in HELPER_MARKDOWN_FILENAMES:
+        raise ValueError(f"Plan path must be a concept file, not a reserved file: {raw}")
+    return raw
+
+
+def _as_str_list(value: Any) -> list[str]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [part.strip() for part in re.split(r"[;,]", str(value)) if part.strip()]
+
+
+def _assign_shards(rows: list[PlanRow], shards: int) -> None:
+    # Round-robin over path-sorted rows: balanced, deterministic, and
+    # collision-free because every path is unique. index.md files are generated
+    # centrally at reconcile time, so workers never contend on shared files.
+    for position, row in enumerate(sorted(rows, key=lambda r: r.path)):
+        row.shard = position % shards
+
+
+def build_plan(rows: Iterable[dict], *, shards: int = DEFAULT_PLAN_SHARDS) -> Plan:
+    plan_rows: list[PlanRow] = []
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for raw in rows:
+        path = normalize_concept_path(raw.get("path"))
+        if path in seen:
+            duplicates.append(path)
+            continue
+        seen.add(path)
+        status = str(raw.get("status") or "planned").strip().lower()
+        if status not in PLAN_STATUSES:
+            status = "planned"
+        plan_rows.append(
+            PlanRow(
+                path=path,
+                type=str(raw.get("type") or "").strip(),
+                title=str(raw.get("title") or "").strip(),
+                description=str(raw.get("description") or "").strip(),
+                tags=_as_str_list(raw.get("tags")),
+                source_ids=_as_str_list(raw.get("source_ids")),
+                depends_on=[normalize_concept_path(p) for p in _as_str_list(raw.get("depends_on"))],
+                status=status,
+                notes=str(raw.get("notes") or "").strip(),
+            )
+        )
+    if duplicates:
+        raise ValueError(
+            "Duplicate concept paths in plan (paths must be unique to avoid write "
+            "collisions): " + ", ".join(sorted(set(duplicates)))
+        )
+    if not plan_rows:
+        raise ValueError("Plan is empty; provide at least one concept row.")
+    n_shards = max(1, min(int(shards or 1), len(plan_rows)))
+    _assign_shards(plan_rows, n_shards)
+    plan_rows.sort(key=lambda r: (r.shard, r.path))
+    return Plan(rows=plan_rows, shards=n_shards)
+
+
+def _plan_rows_to_csv(rows: list[PlanRow]) -> str:
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=PLAN_FIELDS, lineterminator="\n")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(
+            {
+                "path": row.path,
+                "type": row.type,
+                "title": row.title,
+                "description": row.description,
+                "tags": PLAN_LIST_SEP.join(row.tags),
+                "source_ids": PLAN_LIST_SEP.join(row.source_ids),
+                "depends_on": PLAN_LIST_SEP.join(row.depends_on),
+                "shard": row.shard,
+                "status": row.status,
+                "notes": row.notes,
+            }
+        )
+    return buf.getvalue()
+
+
+def _plan_to_markdown(plan: Plan) -> str:
+    lines = [
+        "# OKF build plan",
+        "",
+        f"{len(plan.rows)} concepts across {plan.shards} shards.",
+        "",
+        "Author each concept as one atomic OKF file at its `path`. Workers own "
+        "disjoint paths, so parallel authoring cannot collide. Run "
+        "`okf coverage` to verify every planned concept exists and is complete.",
+        "",
+    ]
+    by_shard: dict[int, list[PlanRow]] = {}
+    for row in plan.rows:
+        by_shard.setdefault(row.shard, []).append(row)
+    for shard in sorted(by_shard):
+        members = by_shard[shard]
+        lines.append(f"## Shard {shard} ({len(members)} concepts)")
+        lines.append("")
+        lines.append("| done | path | type | title | sources |")
+        lines.append("|---|---|---|---|---|")
+        for row in sorted(members, key=lambda r: r.path):
+            mark = "x" if row.status == "done" else " "
+            lines.append(
+                f"| [{mark}] | `{row.path}` | {row.type} | {row.title} | "
+                f"{', '.join(row.source_ids)} |"
+            )
+        lines.append("")
+    return "\n".join(lines)
+
+
+def plan_dir_path(root: str | Path, plan_dir: str | Path | None = None) -> Path:
+    if plan_dir:
+        return Path(plan_dir).resolve()
+    return (Path(root).resolve() / PLAN_DIRNAME)
+
+
+def plan_csv_path(root: str | Path, plan_dir: str | Path | None = None) -> Path:
+    return plan_dir_path(root, plan_dir) / PLAN_CSV_NAME
+
+
+def write_plan(root: str | Path, plan: Plan, *, plan_dir: str | Path | None = None) -> dict[str, Path]:
+    directory = plan_dir_path(root, plan_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    csv_path = directory / PLAN_CSV_NAME
+    md_path = directory / PLAN_MD_NAME
+    csv_path.write_text(_plan_rows_to_csv(plan.rows), encoding="utf-8")
+    md_path.write_text(_plan_to_markdown(plan) + "\n", encoding="utf-8")
+    return {"csv": csv_path, "md": md_path}
+
+
+def read_plan(root: str | Path, *, plan_dir: str | Path | None = None) -> Plan:
+    csv_path = plan_csv_path(root, plan_dir)
+    if not csv_path.is_file():
+        raise FileNotFoundError(f"No plan found at {csv_path}. Run `okf plan` first.")
+    rows: list[PlanRow] = []
+    with csv_path.open("r", encoding="utf-8", newline="") as handle:
+        for record in csv.DictReader(handle):
+            row = PlanRow(
+                path=normalize_concept_path(record.get("path")),
+                type=(record.get("type") or "").strip(),
+                title=(record.get("title") or "").strip(),
+                description=(record.get("description") or "").strip(),
+                tags=_as_str_list(record.get("tags")),
+                source_ids=_as_str_list(record.get("source_ids")),
+                depends_on=_as_str_list(record.get("depends_on")),
+                status=(record.get("status") or "planned").strip().lower() or "planned",
+                notes=(record.get("notes") or "").strip(),
+            )
+            try:
+                row.shard = int(record.get("shard") or 0)
+            except (TypeError, ValueError):
+                row.shard = 0
+            rows.append(row)
+    shards = (max((r.shard for r in rows), default=0) + 1) if rows else 1
+    return Plan(rows=rows, shards=shards)
+
+
+def update_plan_status(
+    root: str | Path,
+    paths: Iterable[str],
+    status: str,
+    *,
+    plan_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    normalized = str(status).strip().lower()
+    if normalized not in PLAN_STATUSES:
+        raise ValueError(f"Invalid status {status!r}; expected one of {', '.join(PLAN_STATUSES)}.")
+    targets = {normalize_concept_path(p) for p in paths}
+    plan = read_plan(root, plan_dir=plan_dir)
+    known = {row.path for row in plan.rows}
+    for row in plan.rows:
+        if row.path in targets:
+            row.status = normalized
+    write_plan(root, plan, plan_dir=plan_dir)
+    return {
+        "status": normalized,
+        "updated": sorted(targets & known),
+        "unknown": sorted(targets - known),
+    }
+
+
+def coverage_report(root: str | Path, *, plan_dir: str | Path | None = None) -> dict[str, Any]:
+    root_path = Path(root).resolve()
+    plan = read_plan(root_path, plan_dir=plan_dir)
+    report = scan_bundle(root_path)
+
+    error_paths = {issue.path for issue in report.errors}
+    warnings_by_path: dict[str, list[str]] = {}
+    for issue in report.warnings:
+        warnings_by_path.setdefault(issue.path, []).append(issue.message)
+    actual_rels = {concept.rel for concept in report.concepts}
+    planned_paths = {row.path for row in plan.rows}
+
+    missing: list[str] = []
+    incomplete: list[str] = []
+    errored: list[str] = []
+    complete: list[str] = []
+    status_mismatch: list[dict[str, str]] = []
+    by_shard: dict[int, dict[str, int]] = {}
+
+    for row in plan.rows:
+        bucket = by_shard.setdefault(
+            row.shard,
+            {"planned": 0, "complete": 0, "incomplete": 0, "missing": 0, "errored": 0},
+        )
+        bucket["planned"] += 1
+        if not (root_path / row.path).is_file():
+            classification = "missing"
+            missing.append(row.path)
+        elif row.path in error_paths:
+            classification = "errored"
+            errored.append(row.path)
+        elif row.path not in actual_rels:
+            classification = "errored"
+            errored.append(row.path)
+        else:
+            messages = warnings_by_path.get(row.path, [])
+            is_stub = any(
+                any(marker in message for marker in _STUB_WARNING_MARKERS)
+                for message in messages
+            )
+            if is_stub:
+                classification = "incomplete"
+                incomplete.append(row.path)
+            else:
+                classification = "complete"
+                complete.append(row.path)
+        bucket[classification] += 1
+        if row.status == "done" and classification != "complete":
+            status_mismatch.append({"path": row.path, "marked": "done", "actual": classification})
+
+    extra = sorted(actual_rels - planned_paths)
+    is_complete = not missing and not incomplete and not errored
+    return {
+        "root": str(root_path),
+        "plan_path": str(plan_csv_path(root_path, plan_dir)),
+        "planned": len(plan.rows),
+        "shards": plan.shards,
+        "complete": is_complete,
+        "counts": {
+            "complete": len(complete),
+            "incomplete": len(incomplete),
+            "missing": len(missing),
+            "errored": len(errored),
+            "extra": len(extra),
+        },
+        "missing": sorted(missing),
+        "incomplete": sorted(incomplete),
+        "errored": sorted(errored),
+        "extra": extra,
+        "status_mismatch": status_mismatch,
+        "by_shard": {str(shard): by_shard[shard] for shard in sorted(by_shard)},
+    }
+
+
+def coverage_markdown(cov: dict[str, Any]) -> str:
+    counts = cov["counts"]
+    status = "COMPLETE" if cov["complete"] else "INCOMPLETE"
+    lines = [
+        "# OKF coverage report",
+        "",
+        f"Bundle: `{cov['root']}`",
+        f"Plan: `{cov['plan_path']}`",
+        f"Status: **{status}**",
+        "",
+        "| metric | value |",
+        "|---|---:|",
+        f"| Planned concepts | {cov['planned']} |",
+        f"| Complete | {counts['complete']} |",
+        f"| Incomplete | {counts['incomplete']} |",
+        f"| Missing | {counts['missing']} |",
+        f"| Errored | {counts['errored']} |",
+        f"| Unplanned (extra) | {counts['extra']} |",
+        "",
+    ]
+
+    def _section(title: str, items: list[str]) -> None:
+        if items:
+            lines.extend([f"## {title}", ""])
+            lines.extend(f"* `{path}`" for path in items)
+            lines.append("")
+
+    _section("Missing concepts (author these)", cov["missing"])
+    _section("Incomplete concepts (stubs to finish)", cov["incomplete"])
+    _section("Errored concepts (fix conformance)", cov["errored"])
+    _section("Unplanned concepts on disk", cov["extra"])
+    if cov["status_mismatch"]:
+        lines.extend(["## Status mismatches (marked done but not complete)", ""])
+        lines.extend(
+            f"* `{item['path']}` - marked {item['marked']}, actual {item['actual']}"
+            for item in cov["status_mismatch"]
+        )
+        lines.append("")
+    return "\n".join(lines)
+
+
+def install_agents(target_dir: str | Path | None = None, *, overwrite: bool = False) -> dict[str, Any]:
+    """Copy the bundled Codex subagent definitions into a `.codex/agents` dir."""
+    source = Path(__file__).resolve().parents[1] / AGENT_TEMPLATE_DIRNAME
+    if not source.is_dir():
+        raise FileNotFoundError(f"No bundled agent templates at {source}.")
+    dest = Path(target_dir).resolve() if target_dir else (Path.cwd() / ".codex" / "agents")
+    dest.mkdir(parents=True, exist_ok=True)
+    installed: list[str] = []
+    skipped: list[str] = []
+    for toml_path in sorted(source.glob("*.toml")):
+        out_path = dest / toml_path.name
+        if out_path.exists() and not overwrite:
+            skipped.append(str(out_path))
+            continue
+        shutil.copyfile(toml_path, out_path)
+        installed.append(str(out_path))
+    return {"source": str(source), "target": str(dest), "installed": installed, "skipped": skipped}

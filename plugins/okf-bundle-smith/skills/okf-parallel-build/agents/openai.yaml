@@ -1,0 +1,12 @@
+interface:
+  display_name: OKF Parallel Build
+  short_description: "Build a large OKF bundle with many parallel Codex subagents and a deterministic coverage gate."
+  brand_color: "#2F6F5E"
+  default_prompt: Build an exhaustive OKF bundle by fanning out authoring subagents over a sharded plan.
+policy:
+  allow_implicit_invocation: true
+dependencies:
+  tools:
+    - type: mcp
+      value: okf-tools
+      description: OKF Bundle Smith MCP server
