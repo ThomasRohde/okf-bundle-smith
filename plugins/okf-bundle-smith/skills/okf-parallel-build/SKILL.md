@@ -62,8 +62,14 @@ context thin: it holds the plan and coverage summaries, not concept bodies.
 1. **Scope.** Infer purpose, target consumer, freshness, and source boundaries.
    Define a source policy before writing.
 2. **Scout sources in parallel.** Split the topic into subtopics and spawn one
-   `okf-source-scout` per subtopic: *"Spawn one source scout per subtopic, wait
-   for all, and merge their source tables."* Deduplicate into one source table.
+   `okf-source-scout` per subtopic, giving each a unique short id prefix
+   derived from its subtopic (e.g. `auth`, `pay`): *"Spawn one source scout per
+   subtopic, wait for all, and merge their source tables."* Deduplicate the
+   merged rows, then write the result to `<bundle>/.okf/sources.csv` with
+   columns `source_id,title,url,publisher,date,source_type,reliability,used_for`.
+   This file is the citation database every authoring worker resolves
+   `source_ids` against - a worker cannot cite what is not in it. (`.okf/` is
+   skipped by `scan_bundle`, so it never becomes bundle content.)
 3. **Map concepts.** Hand the merged source table and goal to `okf-concept-mapper`
    and get back one exhaustive concept inventory (JSON array). Over-enumerate;
    coverage will catch extras, but it cannot invent a concept nobody planned.
@@ -89,13 +95,18 @@ context thin: it holds the plan and coverage summaries, not concept bodies.
    rows into waves automatically — you do not need to batch by hand.
 6. **Reconcile deterministically** (tools, not model context):
    - `okf coverage <bundle>` — the gate; exits non-zero until every planned
-     concept exists and is complete.
+     concept exists and is complete. For rows with `source_ids`, coverage also
+     checks that the authored file has a `# Citations` section.
    - `okf index <bundle>` — regenerate root and directory indexes centrally.
    - `okf lint <bundle> --strict` — conformance + quality.
-7. **Repair loop.** While `okf coverage` reports `missing`, `incomplete`, or
-   `errored` concepts, re-spawn authoring workers for just those rows (filter the
-   plan CSV to the failing paths) and re-run coverage. Stop when status is
-   COMPLETE.
+7. **Repair loop.** Run coverage with retry output, then re-spawn authoring
+   workers over `<bundle>/.okf/retry.csv`:
+   ```
+   python tools/okf_tool.py coverage <bundle> --retry-csv
+   spawn_agents_on_csv(csv_path = "<bundle>/.okf/retry.csv", ...)
+   ```
+   Re-run coverage and repeat until status is COMPLETE. When coverage is
+   complete, the retry CSV is removed.
 8. **Review in parallel.** Over disjoint directories, spawn `okf-citation-auditor`,
    `okf-graph-reviewer`, and `okf-skeptical-reviewer`. Feed their findings back
    into a repair wave, then re-run coverage and `lint --strict`.
@@ -112,6 +123,9 @@ context thin: it holds the plan and coverage summaries, not concept bodies.
 - **Truth is on disk.** `okf coverage` derives completeness from files, not from
   the `status` column. A worker that marks a row `done` without a complete file is
   reported as a status mismatch.
+- **Sources are on disk.** `.okf/sources.csv` is the single citation database.
+  Workers resolve `source_ids` against it; never route source tables through
+  agent-to-agent messages.
 - **Thin orchestrator.** Pass concept bodies through the filesystem and pass only
   tables/summaries between agents. This is what keeps a large bundle inside
   budget.

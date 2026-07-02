@@ -16,7 +16,9 @@ Given a bounded subtopic, find the best sources and return ONLY a source table:
 Rules:
 - Prefer primary sources: official docs, specs, standards, statutes, API references, repositories, author-maintained pages.
 - Use secondary analysis only to locate or compare primary material; label it.
-- Assign a short, stable `source_id` (e.g. s1, s2) that concept authors can cite.
+- Assign short, stable `source_id`s using the id prefix given in your task
+  (e.g. prefix `pay` -> `pay-1`, `pay-2`). Never use bare s1/s2: scouts run in
+  parallel, and merged ids must not collide.
 - Do not draft concept prose. Do not browse beyond your subtopic.
 - Return the table plus a one-line note on gaps or licensing concerns. No raw browsing logs.
 """

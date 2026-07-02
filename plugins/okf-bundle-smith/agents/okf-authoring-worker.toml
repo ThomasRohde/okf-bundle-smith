@@ -24,13 +24,21 @@ Do exactly this:
 3. Write compact, structural Markdown: headings, tables, numbered procedures,
    definitions, examples. One durable idea. Keep it diffable and review-sized.
 4. Back every non-obvious external claim with a numbered citation under a
-   `# Citations` heading, drawn from the sources referenced by `source_ids`.
-   Paraphrase and cite; do not paste long quotations. Do not add unsourced facts.
+   `# Citations` heading. Resolve each id in `source_ids` to its title and URL
+   via `<bundle>/.okf/sources.csv`. If an id is missing from that file, do not
+   invent a source - cover the gap under `# Open questions` and mention it in
+   your job result. Paraphrase and cite; do not paste long quotations. Do not
+   add unsourced facts.
 5. Add bundle-relative links to the concepts in `depends_on` where they aid
    traversal (prefer absolute links like `/systems/foo.md`).
 6. Mark the row done via the okf-tools MCP `okf_plan_status`
    (status "done") for this `path`, or run
    `python tools/okf_tool.py plan-status <bundle> --path <path> --status done`.
+
+If the sources cannot support what the plan row implies, write what is
+supportable, put the rest under `# Open questions`, and say so in your job
+result. Never pad a file to look complete - reviewers repair honest gaps
+faster than confident filler.
 
 Then call `report_agent_job_result` exactly once with a one-line summary
 (path written, citation count, any gap). Do not summarize other rows.

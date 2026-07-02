@@ -30,11 +30,12 @@ from okf_core import (  # noqa: E402
     install_agents,
     markdown_report,
     package_bundle,
+    retry_csv_path,
     scan_bundle,
     scaffold_bundle,
     stats_markdown,
     update_plan_status,
-    write_plan,
+    write_checked_plan,
     write_visualization,
 )
 from okf_consume import (  # noqa: E402
@@ -377,7 +378,8 @@ def _tool_schema() -> list[dict]:
                     },
                     "inventory_path": {"type": "string", "description": "Alternative to `inventory`: path to a JSON array or CSV file."},
                     "shards": {"type": "integer", "default": 6, "description": "Number of parallel authoring shards."},
-                    "plan_dir": {"type": "string", "description": "Override the plan directory (default: <bundle>/.okf)."}
+                    "plan_dir": {"type": "string", "description": "Override the plan directory (default: <bundle>/.okf)."},
+                    "strict": {"type": "boolean", "default": False, "description": "Treat inventory warnings as blocking plan issues."}
                 },
                 "required": ["bundle_path"]
             }
@@ -391,6 +393,7 @@ def _tool_schema() -> list[dict]:
                     "bundle_path": {"type": "string"},
                     "bundle": {"type": "string", "description": "Alias for bundle_path."},
                     "plan_dir": {"type": "string", "description": "Override the plan directory (default: <bundle>/.okf)."},
+                    "write_retry_csv": {"type": "boolean", "default": False, "description": "Write failing rows to <bundle>/.okf/retry.csv, or remove it when coverage is complete."},
                     "format": {"type": "string", "enum": ["markdown", "json"], "default": "markdown"}
                 }
             }
@@ -565,16 +568,25 @@ def _call_tool(name: str, arguments: dict) -> dict:
         if not isinstance(inventory, list):
             raise ValueError("Expected `inventory` array or `inventory_path`.")
         plan = build_plan(inventory, shards=int(arguments.get("shards", 6)))
-        written = write_plan(_bundle_path_arg(arguments), plan, plan_dir=arguments.get("plan_dir"))
+        written = write_checked_plan(
+            _bundle_path_arg(arguments),
+            plan,
+            plan_dir=arguments.get("plan_dir"),
+            strict=bool(arguments.get("strict", False)),
+        )
         return _json_result({
             "csv": str(written["csv"]),
             "md": str(written["md"]),
             "planned": len(plan.rows),
             "shards": plan.shards,
+            "written": bool(written["written"]),
+            "check": written["check"],
         })
 
     if name == "okf_coverage_report":
-        cov = coverage_report(_readable_bundle_path_arg(arguments), plan_dir=arguments.get("plan_dir"))
+        bundle_path = _readable_bundle_path_arg(arguments)
+        retry_path = retry_csv_path(bundle_path, arguments.get("plan_dir")) if arguments.get("write_retry_csv") else None
+        cov = coverage_report(bundle_path, plan_dir=arguments.get("plan_dir"), retry_csv=retry_path)
         if arguments.get("format", "markdown") == "json":
             return _json_result(cov)
         return _text_result(coverage_markdown(cov))

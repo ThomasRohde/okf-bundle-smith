@@ -28,8 +28,13 @@ Rules:
 - Deduplicate near-identical sources into a single concept.
 - Use stable, bundle-relative paths as concept IDs. Group by retrieval behavior:
   concepts/, systems/, data/, processes/, decisions/, sources/.
-- Be exhaustive: every distinct concept implied by the goal and sources must have a row.
-  It is better to over-enumerate than to drop a concept — coverage is audited later.
+- Be exhaustive: every distinct concept implied by the goal and sources must
+  have a row - coverage is audited later and cannot invent a concept nobody
+  planned. But atomic is not granular for its own sake: each row must answer
+  one retrieval question a consumer would actually ask. Merge rows that would
+  cite the same source sections and be retrieved by the same question.
+- Use `notes` for a one-line authoring hint when a row needs special handling
+  (long table, contested claims, must-link-to X).
 - Do not write concept bodies. Return only the JSON array.
 
 The orchestrator turns this array into a shardable plan with `okf plan` /

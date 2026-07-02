@@ -14,7 +14,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `plan --strict` / `okf_plan_bundle(strict)` now run a deterministic inventory
+  preflight before fan-out, reporting dangling dependencies, unknown
+  `source_ids`, missing metadata, near-duplicate slugs, and missing
+  `.okf/sources.csv` as structured check issues.
+- `coverage --retry-csv` / `okf_coverage_report(write_retry_csv)` can write
+  `<bundle>/.okf/retry.csv` with exactly the missing, incomplete, or errored
+  plan rows for the next repair wave, and removes the retry file when coverage
+  becomes complete.
+
 ### Changed
+- Coverage now treats planned rows with `source_ids` as incomplete until the
+  authored file includes a level-1 `# Citations` section, surfacing `missing
+  citations section` as a mechanical repair-loop reason.
+- Parallel-build prompts now require source scouts to use non-colliding id
+  prefixes, persist merged source tables to `.okf/sources.csv`, resolve
+  authoring citations from that file, use generated bundle-local `AGENTS.md`,
+  and repair from retry CSV output instead of hand-filtering the plan.
 - `context` / `okf_prepare_answer_context` now ranks the full search pool,
   separates direct matches from injected link-neighborhood entries, and fills
   the pack with direct hits first — neighbors take only leftover slots. Weak

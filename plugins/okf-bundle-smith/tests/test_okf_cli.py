@@ -106,6 +106,79 @@ class OkfCliTests(unittest.TestCase):
             self.assertEqual(0, run("install-agents", "--target", str(target)))
             self.assertTrue((target / "okf-authoring-worker.toml").is_file())
 
+    def test_plan_cli_checks_inventory_before_writing(self) -> None:
+        import json
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bad_bundle = Path(tmp) / "bad-bundle"
+            bad_bundle.mkdir()
+            bad_inventory = Path(tmp) / "bad-inventory.json"
+            bad_inventory.write_text(
+                json.dumps([
+                    {
+                        "path": "concepts/x",
+                        "type": "API",
+                        "title": "X",
+                        "description": "X.",
+                        "depends_on": ["concepts/missing"],
+                    }
+                ]),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(1, run("plan", str(bad_bundle), "--inventory", str(bad_inventory)))
+            self.assertFalse((bad_bundle / ".okf" / "plan.csv").exists())
+
+            warn_bundle = Path(tmp) / "warn-bundle"
+            warn_inventory = Path(tmp) / "warn-inventory.json"
+            warn_inventory.write_text(json.dumps([{"path": "concepts/x", "type": "API", "title": "X"}]), encoding="utf-8")
+
+            self.assertEqual(0, run("plan", str(warn_bundle), "--inventory", str(warn_inventory)))
+            self.assertTrue((warn_bundle / ".okf" / "plan.csv").is_file())
+
+    def test_coverage_retry_csv_cli_writes_and_removes_retry_file(self) -> None:
+        import json
+
+        concept = "\n".join(
+            [
+                "---",
+                "type: API",
+                "title: Concept",
+                "description: A durable concept used by the coverage test.",
+                "tags: [test]",
+                "timestamp: 2026-06-29T00:00:00Z",
+                "---",
+                "",
+                "# Summary",
+                "",
+                "This concept body is intentionally long enough to clear the lightweight",
+                "usefulness check so coverage classifies it as complete rather than a stub.",
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "bundle"
+            inventory = Path(tmp) / "inventory.json"
+            inventory.write_text(
+                json.dumps([
+                    {"path": "concepts/x", "type": "API", "title": "X", "description": "X."},
+                    {"path": "concepts/y", "type": "API", "title": "Y", "description": "Y."},
+                ]),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(0, run("plan", str(bundle), "--inventory", str(inventory)))
+            self.assertEqual(1, run("coverage", str(bundle), "--retry-csv"))
+            retry_csv = bundle / ".okf" / "retry.csv"
+            self.assertTrue(retry_csv.is_file())
+            self.assertIn("concepts/x.md", retry_csv.read_text(encoding="utf-8"))
+
+            (bundle / "concepts").mkdir(parents=True, exist_ok=True)
+            (bundle / "concepts" / "x.md").write_text(concept, encoding="utf-8")
+            (bundle / "concepts" / "y.md").write_text(concept.replace("title: Concept", "title: Concept Y"), encoding="utf-8")
+
+            self.assertEqual(0, run("coverage", str(bundle), "--retry-csv"))
+            self.assertFalse(retry_csv.exists())
+
     def test_lint_strict_returns_nonzero_on_warnings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

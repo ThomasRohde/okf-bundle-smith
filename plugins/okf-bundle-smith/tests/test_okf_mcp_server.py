@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -148,30 +149,51 @@ class OkfMcpServerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             bundle = str(Path(tmp) / "bundle")
             (Path(bundle) / "concepts").mkdir(parents=True)
+            (Path(bundle) / ".okf").mkdir(parents=True)
+            (Path(bundle) / ".okf" / "sources.csv").write_text(
+                "source_id,title,url,publisher,date,source_type,reliability,used_for\n"
+                "s1,Source,https://example.com/source,Example,2026-01-01,reference,primary,tests\n",
+                encoding="utf-8",
+            )
 
             plan = handle({
                 "jsonrpc": "2.0", "id": 1, "method": "tools/call",
                 "params": {"name": "okf_plan_bundle", "arguments": {
                     "bundle_path": bundle,
-                    "inventory": [{"path": "concepts/x", "type": "API", "title": "X"}],
+                    "inventory": [{"path": "concepts/x", "type": "API", "title": "X", "description": "X.", "source_ids": ["s1"]}],
                     "shards": 1,
                 }},
             })
             self.assertIn('"planned": 1', plan["result"]["content"][0]["text"])  # type: ignore[index]
+            self.assertIn('"errors": 0', plan["result"]["content"][0]["text"])  # type: ignore[index]
 
             cov = handle({
                 "jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                "params": {"name": "okf_coverage_report", "arguments": {"bundle": bundle, "format": "json"}},
+                "params": {"name": "okf_coverage_report", "arguments": {"bundle": bundle, "format": "json", "write_retry_csv": True}},
             })
             self.assertIn('"complete": false', cov["result"]["content"][0]["text"])  # type: ignore[index]
+            self.assertTrue((Path(bundle) / ".okf" / "retry.csv").is_file())
 
             (Path(bundle) / "concepts" / "x.md").write_text(concept, encoding="utf-8")
 
-            cov_done = handle({
+            cov_incomplete = handle({
                 "jsonrpc": "2.0", "id": 3, "method": "tools/call",
                 "params": {"name": "okf_coverage_report", "arguments": {"bundle": bundle, "format": "json"}},
             })
+            self.assertIn('"complete": false', cov_incomplete["result"]["content"][0]["text"])  # type: ignore[index]
+            self.assertIn("missing citations section", cov_incomplete["result"]["content"][0]["text"])  # type: ignore[index]
+
+            (Path(bundle) / "concepts" / "x.md").write_text(
+                concept + "\n# Citations\n\n[1] [Source](https://example.com/source)\n",
+                encoding="utf-8",
+            )
+
+            cov_done = handle({
+                "jsonrpc": "2.0", "id": 33, "method": "tools/call",
+                "params": {"name": "okf_coverage_report", "arguments": {"bundle": bundle, "format": "json", "write_retry_csv": True}},
+            })
             self.assertIn('"complete": true', cov_done["result"]["content"][0]["text"])  # type: ignore[index]
+            self.assertFalse((Path(bundle) / ".okf" / "retry.csv").exists())
 
             status = handle({
                 "jsonrpc": "2.0", "id": 4, "method": "tools/call",
@@ -184,6 +206,31 @@ class OkfMcpServerTests(unittest.TestCase):
                 "params": {"name": "okf_install_agents", "arguments": {"target": str(Path(tmp) / "codex-agents")}},
             })
             self.assertIn("okf-authoring-worker.toml", install["result"]["content"][0]["text"])  # type: ignore[index]
+
+    def test_plan_bundle_returns_check_payload_for_defective_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = str(Path(tmp) / "bundle")
+            response = handle({
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": "okf_plan_bundle", "arguments": {
+                    "bundle_path": bundle,
+                    "inventory": [
+                        {
+                            "path": "concepts/x",
+                            "type": "API",
+                            "title": "X",
+                            "description": "X.",
+                            "depends_on": ["concepts/missing"],
+                        }
+                    ],
+                    "shards": 1,
+                }},
+            })
+
+            payload = json.loads(response["result"]["content"][0]["text"])  # type: ignore[index]
+            self.assertFalse(payload["written"])
+            self.assertEqual(1, payload["check"]["errors"])
+            self.assertFalse((Path(bundle) / ".okf" / "plan.csv").exists())
 
 
 if __name__ == "__main__":

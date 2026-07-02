@@ -40,9 +40,10 @@ Return format:
 
 ## Authoring worker
 
-Task: Draft a bounded set of concept files.
+Task: Author exactly one concept file at its plan path, then mark the plan row
+done. Concept bodies go to disk, never back through the orchestrator.
 
-Return format: file path plus full Markdown content.
+Return format: one line - path written, citation count, any gap.
 
 ## Citation auditor
 

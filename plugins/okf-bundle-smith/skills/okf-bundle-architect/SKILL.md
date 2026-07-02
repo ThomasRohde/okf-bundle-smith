@@ -38,7 +38,11 @@ Always optimize for:
 6. Write concept files with YAML frontmatter and structural Markdown sections.
 7. Add cross-links where they help traversal. Prefer absolute bundle-relative links, e.g. `/systems/payments-api.md`.
 8. Generate `index.md` for the root and every ancestor directory that participates in the concept tree. Keep index entries compact.
-9. Create a bundle-local `AGENTS.md` with portable instructions for consuming the bundle as plain OKF Markdown. Do not assume Codex, MCP, CLI, search, graph, or other OKF tools are available.
+9. Generate bundle-local `AGENTS.md` usage guidance with the deterministic
+   generator - `okf_generate_chatgpt_usage` (with `write_files`) or
+   `python tools/okf_tool.py generate-chatgpt-usage <bundle> --write` - rather
+   than writing it by hand. The generated guidance stays portable (no Codex,
+   MCP, CLI, or OKF tooling assumed) and consistent across bundles.
 10. Add or update `log.md` with a date-grouped summary.
 11. Run validation and repair until the bundle has no hard errors and only intentional warnings. Use `python tools/okf_tool.py lint <bundle>` when the plugin repo is available.
 

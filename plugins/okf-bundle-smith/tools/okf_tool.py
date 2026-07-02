@@ -15,13 +15,15 @@ from okf_core import (
     generate_indexes,
     graph,
     install_agents,
+    inventory_check_blocks_plan,
     markdown_report,
     package_bundle,
+    retry_csv_path,
     scan_bundle,
     scaffold_bundle,
     stats_markdown,
     update_plan_status,
-    write_plan,
+    write_checked_plan,
     write_visualization,
 )
 from okf_consume import (
@@ -234,24 +236,37 @@ def _load_inventory(source: str) -> list[dict]:
 
 def cmd_plan(args: argparse.Namespace) -> int:
     plan = build_plan(_load_inventory(args.inventory), shards=args.shards)
-    written = write_plan(args.bundle, plan, plan_dir=args.plan_dir)
+    written = write_checked_plan(args.bundle, plan, plan_dir=args.plan_dir, strict=args.strict)
     payload = {
         "csv": str(written["csv"]),
         "md": str(written["md"]),
         "planned": len(plan.rows),
         "shards": plan.shards,
+        "written": bool(written["written"]),
+        "check": written["check"],
     }
     if args.format == "json":
         print_json(payload)
     else:
-        print(f"Wrote plan: {payload['csv']}")
-        print(f"Wrote plan: {payload['md']}")
+        if payload["written"]:
+            print(f"Wrote plan: {payload['csv']}")
+            print(f"Wrote plan: {payload['md']}")
+        else:
+            print("Plan check failed; no plan files were written.")
         print(f"Planned {payload['planned']} concepts across {payload['shards']} shards.")
-    return 0
+        check = payload["check"]
+        print(f"Inventory check: {check['errors']} errors, {check['warnings']} warnings.")
+        for issue in check["issues"]:
+            marker = "ERROR" if issue["severity"] == "error" else "WARN"
+            print(f"- {marker} {issue['path']}: {issue['message']}")
+    return 1 if inventory_check_blocks_plan(payload["check"], strict=args.strict) else 0
 
 
 def cmd_coverage(args: argparse.Namespace) -> int:
-    cov = coverage_report(args.bundle, plan_dir=args.plan_dir)
+    retry_path = None
+    if args.retry_csv is not None:
+        retry_path = retry_csv_path(args.bundle, args.plan_dir) if args.retry_csv == "" else Path(args.retry_csv)
+    cov = coverage_report(args.bundle, plan_dir=args.plan_dir, retry_csv=retry_path)
     payload = json.dumps(cov, indent=2, ensure_ascii=False) if args.format == "json" else coverage_markdown(cov)
     if args.output:
         Path(args.output).write_text(payload + "\n", encoding="utf-8")
@@ -409,6 +424,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--inventory", required=True, help="Concept inventory: JSON array file, CSV file, or '-' for JSON on stdin")
     p.add_argument("--shards", type=int, default=6, help="Number of parallel authoring shards (default: 6, matching Codex max_threads)")
     p.add_argument("--plan-dir", help="Override the plan directory (default: <bundle>/.okf)")
+    p.add_argument("--strict", action="store_true", help="Treat inventory warnings as blocking plan issues")
     p.add_argument("--format", choices=["markdown", "json"], default="markdown")
     p.set_defaults(func=cmd_plan)
 
@@ -417,6 +433,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--plan-dir", help="Override the plan directory (default: <bundle>/.okf)")
     p.add_argument("--format", choices=["markdown", "json"], default="markdown")
     p.add_argument("--output", help="Write the report to a file as well as stdout")
+    p.add_argument("--retry-csv", nargs="?", const="", default=None, help="Write failing plan rows to PATH, or to <bundle>/.okf/retry.csv when PATH is omitted")
     p.set_defaults(func=cmd_coverage)
 
     p = sub.add_parser("plan-status", help="Mark plan rows with a status (planned/in_progress/done)")

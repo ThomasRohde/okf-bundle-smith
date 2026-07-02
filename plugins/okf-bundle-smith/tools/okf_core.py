@@ -1506,6 +1506,8 @@ def markdown_report(report: BundleReport) -> str:
 PLAN_DIRNAME = ".okf"
 PLAN_CSV_NAME = "plan.csv"
 PLAN_MD_NAME = "plan.md"
+SOURCES_CSV_NAME = "sources.csv"
+RETRY_CSV_NAME = "retry.csv"
 PLAN_STATUSES = ("planned", "in_progress", "done")
 PLAN_LIST_SEP = ";"
 PLAN_FIELDS = [
@@ -1628,6 +1630,176 @@ def build_plan(rows: Iterable[dict], *, shards: int = DEFAULT_PLAN_SHARDS) -> Pl
     return Plan(rows=plan_rows, shards=n_shards)
 
 
+def _coerce_plan_rows(rows: Iterable[dict] | Iterable[PlanRow] | Plan) -> list[PlanRow]:
+    if isinstance(rows, Plan):
+        return list(rows.rows)
+    plan_rows: list[PlanRow] = []
+    for row in rows:
+        if isinstance(row, PlanRow):
+            plan_rows.append(row)
+            continue
+        if not isinstance(row, dict):
+            raise TypeError("Inventory rows must be dictionaries or PlanRow instances.")
+        plan_rows.append(
+            PlanRow(
+                path=normalize_concept_path(row.get("path")),
+                type=str(row.get("type") or "").strip(),
+                title=str(row.get("title") or "").strip(),
+                description=str(row.get("description") or "").strip(),
+                tags=_as_str_list(row.get("tags")),
+                source_ids=_as_str_list(row.get("source_ids")),
+                depends_on=[normalize_concept_path(p) for p in _as_str_list(row.get("depends_on"))],
+                status=str(row.get("status") or "planned").strip().lower() or "planned",
+                notes=str(row.get("notes") or "").strip(),
+            )
+        )
+    return plan_rows
+
+
+def _inventory_issue(severity: str, path: str, message: str) -> dict[str, str]:
+    return {"severity": severity, "path": path, "message": message}
+
+
+def _read_source_ids(path: Path) -> tuple[set[str], str | None]:
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            if not reader.fieldnames or "source_id" not in reader.fieldnames:
+                return set(), f"{SOURCES_CSV_NAME} must contain a source_id column."
+            return {
+                str(record.get("source_id") or "").strip()
+                for record in reader
+                if str(record.get("source_id") or "").strip()
+            }, None
+    except OSError as exc:
+        return set(), f"Could not read {SOURCES_CSV_NAME}: {exc}"
+
+
+def check_inventory(
+    rows: Iterable[dict] | Iterable[PlanRow] | Plan,
+    bundle_path: str | Path,
+    *,
+    plan_dir: str | Path | None = None,
+) -> list[dict[str, str]]:
+    """Return deterministic preflight issues for a concept inventory."""
+    root_path = Path(bundle_path).resolve()
+    plan_rows = _coerce_plan_rows(rows)
+    issues: list[dict[str, str]] = []
+    planned_paths = {row.path for row in plan_rows}
+
+    sources_path = sources_csv_path(root_path, plan_dir)
+    has_source_refs = any(row.source_ids for row in plan_rows)
+    source_ids: set[str] = set()
+    source_read_error: str | None = None
+    if has_source_refs and sources_path.is_file():
+        source_ids, source_read_error = _read_source_ids(sources_path)
+
+    stems: dict[str, list[PlanRow]] = {}
+    for row in plan_rows:
+        missing_fields = [
+            field_name
+            for field_name in ("type", "title", "description")
+            if not str(getattr(row, field_name) or "").strip()
+        ]
+        if missing_fields:
+            issues.append(
+                _inventory_issue(
+                    "warning",
+                    row.path,
+                    "Plan row is missing metadata: " + ", ".join(missing_fields),
+                )
+            )
+
+        for target in row.depends_on:
+            if target not in planned_paths and not (root_path / target).is_file():
+                issues.append(
+                    _inventory_issue(
+                        "error",
+                        row.path,
+                        f"depends_on target is not planned and does not exist: {target}",
+                    )
+                )
+
+        if row.source_ids:
+            if not sources_path.is_file():
+                issues.append(
+                    _inventory_issue(
+                        "warning",
+                        row.path,
+                        f"{SOURCES_CSV_NAME} is missing; source_ids cannot be resolved: "
+                        + ", ".join(row.source_ids),
+                    )
+                )
+            elif source_read_error:
+                issues.append(_inventory_issue("error", row.path, source_read_error))
+            else:
+                missing_ids = [source_id for source_id in row.source_ids if source_id not in source_ids]
+                if missing_ids:
+                    issues.append(
+                        _inventory_issue(
+                            "error",
+                            row.path,
+                            "Unknown source_id(s) in "
+                            f"{SOURCES_CSV_NAME}: {', '.join(sorted(missing_ids))}",
+                        )
+                    )
+
+        stem = PurePosixPath(row.path).stem
+        stems.setdefault(stem, []).append(row)
+
+    for stem, members in sorted(stems.items()):
+        dirs = {str(PurePosixPath(member.path).parent) for member in members}
+        if len(members) > 1 and len(dirs) > 1:
+            paths = ", ".join(sorted(member.path for member in members))
+            issues.append(
+                _inventory_issue(
+                    "warning",
+                    sorted(member.path for member in members)[0],
+                    f"Near-duplicate concept stem {stem!r} appears in multiple directories: {paths}",
+                )
+            )
+
+    order = {"error": 0, "warning": 1}
+    return sorted(issues, key=lambda item: (order.get(item["severity"], 2), item["path"], item["message"]))
+
+
+def inventory_check_summary(issues: Iterable[dict[str, str]]) -> dict[str, Any]:
+    items = list(issues)
+    return {
+        "errors": sum(1 for item in items if item.get("severity") == "error"),
+        "warnings": sum(1 for item in items if item.get("severity") == "warning"),
+        "issues": items,
+    }
+
+
+def inventory_check_blocks_plan(check: dict[str, Any], *, strict: bool = False) -> bool:
+    return bool(check.get("errors")) or (strict and bool(check.get("warnings")))
+
+
+def _inventory_check_markdown_lines(check: dict[str, Any] | None, *, strict: bool = False) -> list[str]:
+    if check is None:
+        return []
+    lines = [
+        "## Inventory check",
+        "",
+        f"Errors: **{check.get('errors', 0)}**",
+        f"Warnings: **{check.get('warnings', 0)}**",
+    ]
+    if strict and check.get("warnings"):
+        lines.append("Strict mode promotes warnings to blocking issues.")
+    lines.append("")
+    issues = check.get("issues") or []
+    if not issues:
+        lines.append("No inventory issues found.")
+        lines.append("")
+        return lines
+    for issue in issues:
+        marker = "ERROR" if issue.get("severity") == "error" else "WARN"
+        lines.append(f"* **{marker}** `{issue.get('path', '')}` - {issue.get('message', '')}")
+    lines.append("")
+    return lines
+
+
 def _plan_rows_to_csv(rows: list[PlanRow]) -> str:
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=PLAN_FIELDS, lineterminator="\n")
@@ -1650,7 +1822,7 @@ def _plan_rows_to_csv(rows: list[PlanRow]) -> str:
     return buf.getvalue()
 
 
-def _plan_to_markdown(plan: Plan) -> str:
+def _plan_to_markdown(plan: Plan, *, check: dict[str, Any] | None = None, strict: bool = False) -> str:
     lines = [
         "# OKF build plan",
         "",
@@ -1661,6 +1833,7 @@ def _plan_to_markdown(plan: Plan) -> str:
         "`okf coverage` to verify every planned concept exists and is complete.",
         "",
     ]
+    lines.extend(_inventory_check_markdown_lines(check, strict=strict))
     by_shard: dict[int, list[PlanRow]] = {}
     for row in plan.rows:
         by_shard.setdefault(row.shard, []).append(row)
@@ -1690,14 +1863,44 @@ def plan_csv_path(root: str | Path, plan_dir: str | Path | None = None) -> Path:
     return plan_dir_path(root, plan_dir) / PLAN_CSV_NAME
 
 
-def write_plan(root: str | Path, plan: Plan, *, plan_dir: str | Path | None = None) -> dict[str, Path]:
+def sources_csv_path(root: str | Path, plan_dir: str | Path | None = None) -> Path:
+    return plan_dir_path(root, plan_dir) / SOURCES_CSV_NAME
+
+
+def retry_csv_path(root: str | Path, plan_dir: str | Path | None = None) -> Path:
+    return plan_dir_path(root, plan_dir) / RETRY_CSV_NAME
+
+
+def write_plan(
+    root: str | Path,
+    plan: Plan,
+    *,
+    plan_dir: str | Path | None = None,
+    check: dict[str, Any] | None = None,
+    strict: bool = False,
+) -> dict[str, Path]:
     directory = plan_dir_path(root, plan_dir)
     directory.mkdir(parents=True, exist_ok=True)
     csv_path = directory / PLAN_CSV_NAME
     md_path = directory / PLAN_MD_NAME
     csv_path.write_text(_plan_rows_to_csv(plan.rows), encoding="utf-8")
-    md_path.write_text(_plan_to_markdown(plan) + "\n", encoding="utf-8")
+    md_path.write_text(_plan_to_markdown(plan, check=check, strict=strict) + "\n", encoding="utf-8")
     return {"csv": csv_path, "md": md_path}
+
+
+def write_checked_plan(
+    root: str | Path,
+    plan: Plan,
+    *,
+    plan_dir: str | Path | None = None,
+    strict: bool = False,
+) -> dict[str, Any]:
+    check = inventory_check_summary(check_inventory(plan, root, plan_dir=plan_dir))
+    paths = {"csv": plan_csv_path(root, plan_dir), "md": plan_dir_path(root, plan_dir) / PLAN_MD_NAME}
+    if inventory_check_blocks_plan(check, strict=strict):
+        return {**paths, "check": check, "written": False}
+    written = write_plan(root, plan, plan_dir=plan_dir, check=check, strict=strict)
+    return {**written, "check": check, "written": True}
 
 
 def read_plan(root: str | Path, *, plan_dir: str | Path | None = None) -> Plan:
@@ -1751,7 +1954,12 @@ def update_plan_status(
     }
 
 
-def coverage_report(root: str | Path, *, plan_dir: str | Path | None = None) -> dict[str, Any]:
+def coverage_report(
+    root: str | Path,
+    *,
+    plan_dir: str | Path | None = None,
+    retry_csv: str | Path | None = None,
+) -> dict[str, Any]:
     root_path = Path(root).resolve()
     plan = read_plan(root_path, plan_dir=plan_dir)
     report = scan_bundle(root_path)
@@ -1761,10 +1969,12 @@ def coverage_report(root: str | Path, *, plan_dir: str | Path | None = None) -> 
     for issue in report.warnings:
         warnings_by_path.setdefault(issue.path, []).append(issue.message)
     actual_rels = {concept.rel for concept in report.concepts}
+    concepts_by_rel = {concept.rel: concept for concept in report.concepts}
     planned_paths = {row.path for row in plan.rows}
 
     missing: list[str] = []
     incomplete: list[str] = []
+    incomplete_reasons: list[dict[str, Any]] = []
     errored: list[str] = []
     complete: list[str] = []
     status_mismatch: list[dict[str, str]] = []
@@ -1787,13 +1997,18 @@ def coverage_report(root: str | Path, *, plan_dir: str | Path | None = None) -> 
             errored.append(row.path)
         else:
             messages = warnings_by_path.get(row.path, [])
-            is_stub = any(
-                any(marker in message for marker in _STUB_WARNING_MARKERS)
+            reasons = [
+                message
                 for message in messages
-            )
-            if is_stub:
+                if any(marker in message for marker in _STUB_WARNING_MARKERS)
+            ]
+            concept = concepts_by_rel[row.path]
+            if row.source_ids and not CITATION_HEADING_RE.search(concept.body):
+                reasons.append("missing citations section")
+            if reasons:
                 classification = "incomplete"
                 incomplete.append(row.path)
+                incomplete_reasons.append({"path": row.path, "reasons": sorted(set(reasons))})
             else:
                 classification = "complete"
                 complete.append(row.path)
@@ -1803,7 +2018,7 @@ def coverage_report(root: str | Path, *, plan_dir: str | Path | None = None) -> 
 
     extra = sorted(actual_rels - planned_paths)
     is_complete = not missing and not incomplete and not errored
-    return {
+    result = {
         "root": str(root_path),
         "plan_path": str(plan_csv_path(root_path, plan_dir)),
         "planned": len(plan.rows),
@@ -1818,11 +2033,30 @@ def coverage_report(root: str | Path, *, plan_dir: str | Path | None = None) -> 
         },
         "missing": sorted(missing),
         "incomplete": sorted(incomplete),
+        "incomplete_reasons": sorted(incomplete_reasons, key=lambda item: item["path"]),
         "errored": sorted(errored),
         "extra": extra,
         "status_mismatch": status_mismatch,
         "by_shard": {str(shard): by_shard[shard] for shard in sorted(by_shard)},
     }
+    if retry_csv is not None:
+        retry_path = Path(retry_csv).resolve()
+        failing_paths = set(missing) | set(incomplete) | set(errored)
+        if is_complete:
+            removed = retry_path.exists()
+            if removed:
+                retry_path.unlink()
+            result["retry_csv"] = None
+            result["retry_rows"] = 0
+            result["retry_csv_removed"] = str(retry_path) if removed else None
+        else:
+            retry_rows = [row for row in plan.rows if row.path in failing_paths]
+            retry_path.parent.mkdir(parents=True, exist_ok=True)
+            retry_path.write_text(_plan_rows_to_csv(retry_rows), encoding="utf-8")
+            result["retry_csv"] = str(retry_path)
+            result["retry_rows"] = len(retry_rows)
+            result["retry_csv_removed"] = None
+    return result
 
 
 def coverage_markdown(cov: dict[str, Any]) -> str:
@@ -1852,8 +2086,25 @@ def coverage_markdown(cov: dict[str, Any]) -> str:
             lines.extend(f"* `{path}`" for path in items)
             lines.append("")
 
+    if cov.get("retry_csv"):
+        lines.append(f"Retry CSV: `{cov['retry_csv']}` ({cov.get('retry_rows', 0)} rows)")
+        lines.append("")
+    elif cov.get("retry_csv_removed"):
+        lines.append(f"Retry CSV removed: `{cov['retry_csv_removed']}`")
+        lines.append("")
+
     _section("Missing concepts (author these)", cov["missing"])
-    _section("Incomplete concepts (stubs to finish)", cov["incomplete"])
+    if cov["incomplete"]:
+        reason_map = {
+            item["path"]: item.get("reasons") or []
+            for item in cov.get("incomplete_reasons", [])
+        }
+        lines.extend(["## Incomplete concepts (stubs to finish)", ""])
+        for path in cov["incomplete"]:
+            reasons = reason_map.get(path) or []
+            suffix = " - " + "; ".join(reasons) if reasons else ""
+            lines.append(f"* `{path}`{suffix}")
+        lines.append("")
     _section("Errored concepts (fix conformance)", cov["errored"])
     _section("Unplanned concepts on disk", cov["extra"])
     if cov["status_mismatch"]:

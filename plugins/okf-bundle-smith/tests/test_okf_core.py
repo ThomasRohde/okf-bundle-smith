@@ -11,19 +11,23 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from okf_core import (  # noqa: E402
     MD_LINK_RE,
+    PLAN_FIELDS,
     add_log_entry,
     build_plan,
     build_visualization,
     bundle_stats,
+    check_inventory,
     coverage_report,
     generate_indexes,
     graph,
     install_agents,
     package_bundle,
     plan_csv_path,
+    retry_csv_path,
     scan_bundle,
     scaffold_bundle,
     update_plan_status,
+    write_checked_plan,
     write_plan,
 )
 
@@ -37,6 +41,10 @@ body content for downstream agents to decide whether the concept is relevant.
 # Relationships
 
 This concept is discoverable through generated index files.
+
+# Citations
+
+[1] Internal test fixture.
 """
 
 
@@ -268,6 +276,16 @@ class OkfPlanCoverageTests(unittest.TestCase):
             {"path": "concepts/delta", "type": "API", "title": "Delta", "description": "D."},
         ]
 
+    def _write_sources(self, root: Path, ids: list[str]) -> None:
+        source_dir = root / ".okf"
+        source_dir.mkdir(parents=True, exist_ok=True)
+        rows = ["source_id,title,url,publisher,date,source_type,reliability,used_for"]
+        rows.extend(
+            f"{source_id},Source {source_id},https://example.com/{source_id},Example,2026-01-01,reference,primary,tests"
+            for source_id in ids
+        )
+        (source_dir / "sources.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+
     def test_build_plan_assigns_balanced_shards_and_normalizes_paths(self) -> None:
         plan = build_plan(self._inventory(), shards=2)
 
@@ -299,6 +317,115 @@ class OkfPlanCoverageTests(unittest.TestCase):
             with self.subTest(path=path):
                 with self.assertRaises(ValueError):
                     build_plan([{"path": path}])
+
+    def test_inventory_check_blocks_dangling_depends_on_without_writing_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = build_plan([
+                {
+                    "path": "concepts/alpha",
+                    "type": "API",
+                    "title": "Alpha",
+                    "description": "A.",
+                    "depends_on": ["concepts/missing"],
+                }
+            ])
+
+            result = write_checked_plan(root, plan)
+
+            self.assertFalse(result["written"])
+            self.assertEqual(1, result["check"]["errors"])
+            self.assertFalse(plan_csv_path(root).exists())
+            self.assertIn("depends_on target", result["check"]["issues"][0]["message"])
+
+    def test_inventory_check_accepts_depends_on_existing_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_concept(root / "concepts" / "existing.md", title="Existing")
+            plan = build_plan([
+                {
+                    "path": "concepts/alpha",
+                    "type": "API",
+                    "title": "Alpha",
+                    "description": "A.",
+                    "depends_on": ["concepts/existing"],
+                }
+            ])
+
+            result = write_checked_plan(root, plan)
+
+            self.assertTrue(result["written"])
+            self.assertEqual(0, result["check"]["errors"])
+
+    def test_inventory_check_accepts_known_source_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_sources(root, ["s1"])
+            plan = build_plan([
+                {"path": "concepts/alpha", "type": "API", "title": "Alpha", "description": "A.", "source_ids": ["s1"]}
+            ])
+
+            result = write_checked_plan(root, plan)
+
+            self.assertTrue(result["written"])
+            self.assertEqual({"errors": 0, "warnings": 0}, {k: result["check"][k] for k in ("errors", "warnings")})
+
+    def test_inventory_check_blocks_unknown_source_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_sources(root, ["known"])
+            plan = build_plan([
+                {"path": "concepts/alpha", "type": "API", "title": "Alpha", "description": "A.", "source_ids": ["missing"]}
+            ])
+
+            result = write_checked_plan(root, plan)
+
+            self.assertFalse(result["written"])
+            self.assertEqual(1, result["check"]["errors"])
+            self.assertIn("Unknown source_id", result["check"]["issues"][0]["message"])
+
+    def test_inventory_check_warns_when_source_ids_have_no_sources_csv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = build_plan([
+                {"path": "concepts/alpha", "type": "API", "title": "Alpha", "description": "A.", "source_ids": ["s1"]}
+            ])
+
+            result = write_checked_plan(root, plan)
+
+            self.assertTrue(result["written"])
+            self.assertEqual(1, result["check"]["warnings"])
+            self.assertIn("sources.csv is missing", result["check"]["issues"][0]["message"])
+            self.assertTrue(plan_csv_path(root).is_file())
+
+    def test_inventory_check_strict_promotes_missing_metadata_warning(self) -> None:
+        rows = [{"path": "concepts/alpha", "type": "API", "title": "Alpha"}]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = write_checked_plan(root, build_plan(rows))
+
+            self.assertTrue(result["written"])
+            self.assertEqual(1, result["check"]["warnings"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = write_checked_plan(root, build_plan(rows), strict=True)
+
+            self.assertFalse(result["written"])
+            self.assertEqual(1, result["check"]["warnings"])
+            self.assertFalse(plan_csv_path(root).exists())
+
+    def test_inventory_check_warns_on_duplicate_stems_in_different_directories(self) -> None:
+        rows = [
+            {"path": "data/customer-id", "type": "Data", "title": "Customer ID", "description": "A."},
+            {"path": "concepts/customer-id", "type": "Concept", "title": "Customer ID", "description": "B."},
+        ]
+
+        issues = check_inventory(build_plan(rows), Path(tempfile.gettempdir()))
+
+        self.assertEqual(1, len(issues))
+        self.assertEqual("warning", issues[0]["severity"])
+        self.assertIn("Near-duplicate concept stem", issues[0]["message"])
 
     def test_plan_artifacts_live_outside_the_scanned_tree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -337,6 +464,77 @@ class OkfPlanCoverageTests(unittest.TestCase):
             self.assertIn("concepts/surprise.md", cov["extra"])
             self.assertEqual([m["path"] for m in cov["status_mismatch"]], ["concepts/beta.md"])
 
+    def test_coverage_requires_citations_for_rows_with_source_ids(self) -> None:
+        concept_without_citations = "\n".join(
+            [
+                "---",
+                "type: API",
+                "title: Alpha",
+                "description: A durable API concept used by the coverage test.",
+                "tags: [test, api]",
+                "timestamp: 2026-06-29T00:00:00Z",
+                "---",
+                "",
+                "# Summary",
+                "",
+                "This concept body is intentionally long enough to clear the lightweight",
+                "usefulness check but it intentionally omits the citations heading.",
+            ]
+        )
+        concept_with_citations = concept_without_citations + "\n\n# Citations\n\n[1] [Source](https://example.com/source)\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_plan(root, build_plan([
+                {"path": "concepts/alpha", "type": "API", "title": "Alpha", "description": "A.", "source_ids": ["s1"]}
+            ]))
+            path = root / "concepts" / "alpha.md"
+            path.parent.mkdir(parents=True)
+            path.write_text(concept_without_citations, encoding="utf-8")
+
+            cov = coverage_report(root)
+
+            self.assertFalse(cov["complete"])
+            self.assertIn("concepts/alpha.md", cov["incomplete"])
+            self.assertIn("missing citations section", cov["incomplete_reasons"][0]["reasons"])
+
+            path.write_text(concept_with_citations, encoding="utf-8")
+            cov = coverage_report(root)
+
+            self.assertTrue(cov["complete"])
+            self.assertEqual([], cov["incomplete"])
+
+    def test_coverage_does_not_require_citations_without_source_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_plan(root, build_plan([
+                {"path": "concepts/alpha", "type": "API", "title": "Alpha", "description": "A."}
+            ]))
+            path = root / "concepts" / "alpha.md"
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                "\n".join(
+                    [
+                        "---",
+                        "type: API",
+                        "title: Alpha",
+                        "description: A durable API concept used by the coverage test.",
+                        "tags: [test, api]",
+                        "timestamp: 2026-06-29T00:00:00Z",
+                        "---",
+                        "",
+                        "# Summary",
+                        "",
+                        "This concept body is intentionally long enough to clear the lightweight",
+                        "usefulness check and has no citations because the plan row has no sources.",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            cov = coverage_report(root)
+
+            self.assertTrue(cov["complete"])
+
     def test_coverage_rejects_existing_plan_rows_that_escape_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "bundle"
@@ -374,6 +572,37 @@ class OkfPlanCoverageTests(unittest.TestCase):
             self.assertEqual(cov["counts"]["missing"], 0)
             self.assertEqual(cov["counts"]["incomplete"], 0)
             self.assertEqual(cov["planned"], 4)
+
+    def test_coverage_retry_csv_contains_failing_rows_and_is_removed_when_complete(self) -> None:
+        rows = [
+            {"path": "concepts/alpha", "type": "API", "title": "Alpha", "description": "A."},
+            {"path": "concepts/beta", "type": "API", "title": "Beta", "description": "B."},
+            {"path": "concepts/gamma", "type": "API", "title": "Gamma", "description": "C."},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_plan(root, build_plan(rows, shards=2))
+            write_concept(root / "concepts" / "alpha.md", title="Alpha")
+            (root / "concepts" / "beta.md").write_text("---\ntype: API\n---\n\n# Beta\n", encoding="utf-8")
+
+            retry_path = retry_csv_path(root)
+            cov = coverage_report(root, retry_csv=retry_path)
+
+            self.assertFalse(cov["complete"])
+            self.assertEqual(str(retry_path.resolve()), cov["retry_csv"])
+            retry_lines = retry_path.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(",".join(PLAN_FIELDS), retry_lines[0])
+            self.assertIn("concepts/beta.md", "\n".join(retry_lines))
+            self.assertIn("concepts/gamma.md", "\n".join(retry_lines))
+            self.assertNotIn("concepts/alpha.md", "\n".join(retry_lines))
+
+            write_concept(root / "concepts" / "beta.md", title="Beta")
+            write_concept(root / "concepts" / "gamma.md", title="Gamma")
+            cov = coverage_report(root, retry_csv=retry_path)
+
+            self.assertTrue(cov["complete"])
+            self.assertFalse(retry_path.exists())
+            self.assertEqual(0, cov["retry_rows"])
 
     def test_install_agents_copies_bundled_definitions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
