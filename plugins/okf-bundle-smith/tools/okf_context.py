@@ -27,10 +27,13 @@ def _parse_datetime(value: str) -> datetime | None:
 
 
 def _trim(value: str, max_chars: int) -> str:
+    """Trim to at most max_chars characters, ellipsis included."""
     text = value or ""
     if len(text) <= max_chars:
         return text
-    return text[: max(0, max_chars - 1)].rstrip() + "..."
+    if max_chars <= 3:
+        return text[: max(0, max_chars)]
+    return text[: max_chars - 3].rstrip() + "..."
 
 
 def _now_iso() -> str:
@@ -75,7 +78,7 @@ def freshness_report(index: dict[str, Any], now: datetime | None = None) -> dict
     }
 
 
-def bundle_inventory(index: dict[str, Any], central_limit: int = 8) -> dict[str, Any]:
+def bundle_inventory(index: dict[str, Any], central_limit: int = 8, top_n: int | None = None) -> dict[str, Any]:
     type_counts: dict[str, int] = {}
     tag_counts: dict[str, int] = {}
     directory_groups: dict[str, int] = {}
@@ -111,12 +114,16 @@ def bundle_inventory(index: dict[str, Any], central_limit: int = 8) -> dict[str,
             }
         )
 
+    types_sorted = sorted(type_counts.items(), key=lambda item: (-item[1], item[0]))
+    tags_sorted = sorted(tag_counts.items(), key=lambda item: (-item[1], item[0]))
     return {
         "concept_count": len(index.get("concepts", [])),
         "directory_groups": dict(sorted(directory_groups.items())),
         "top_level_directories": dict(sorted(top_level.items())),
-        "types": dict(sorted(type_counts.items(), key=lambda item: (-item[1], item[0]))),
-        "tags": dict(sorted(tag_counts.items(), key=lambda item: (-item[1], item[0]))),
+        "type_count": len(types_sorted),
+        "tag_count": len(tags_sorted),
+        "types": dict(types_sorted[:top_n] if top_n is not None else types_sorted),
+        "tags": dict(tags_sorted[:top_n] if top_n is not None else tags_sorted),
         "central_concepts": sorted(central, key=lambda item: (-item["degree"], item["concept_id"] or ""))[:central_limit],
     }
 
@@ -170,39 +177,65 @@ def prepare_answer_context(
         raise ValueError("mode must be 'strict' or 'hybrid'")
 
     validation = index.get("validation") or {}
+    validation_counts = {
+        "errors": validation.get("errors", 0),
+        "warnings": validation.get("warnings", 0),
+    }
     if mode == "strict" and validation.get("errors", 0):
+        blocking_issues = [
+            issue for issue in validation.get("issues", [])
+            if issue.get("severity") == "error"
+        ][:10]
         return {
             "bundle": index["bundle"]["alias"],
             "mode": mode,
             "blocked": True,
             "block_reason": "Strict mode is blocked because the bundle has validation errors.",
-            "validation": validation,
+            "validation": validation_counts,
+            "validation_issues": blocking_issues,
             "answer_instructions": _answer_instructions(mode),
         }
 
     max_concepts = int(options.get("max_concepts", 8))
     max_chars = int(options.get("max_chars_per_concept", 4000))
+    max_total_chars = int(options.get("max_total_chars", 24000))
     link_depth = int(options.get("link_depth", 1))
     include_index = bool(options.get("include_index", True))
     include_log = bool(options.get("include_log", True))
 
-    results = search_concepts(index, question, max_results=max_concepts)
-    selected_ids: list[str] = []
-    for result in results:
-        selected_ids.append(result["concept_id"])
-        if link_depth > 0:
-            for related in related_concepts(index, result["concept_id"], depth=link_depth, max_results=max_concepts).get("related", []):
-                selected_ids.append(related["concept_id"])
+    # Rank the full pool: search itself injects link-neighborhood entries, and a
+    # small cutoff would let them crowd weak direct matches out of the ranking
+    # before selection even starts.
+    pool = search_concepts(index, question, max_results=len(index.get("concepts", [])))
+    direct_hits = [result for result in pool if result["reason"] != "link-neighborhood"][:max_concepts]
+    neighborhood = [result for result in pool if result["reason"] == "link-neighborhood"]
 
-    deduped: list[str] = []
-    for concept_id in selected_ids:
-        if concept_id not in deduped:
-            deduped.append(concept_id)
-    deduped = deduped[:max_concepts]
+    # Direct search hits fill the pack first; link neighbors only take leftover
+    # slots so well-connected hits cannot evict direct hits. link_depth 0 means
+    # direct hits only: no link-derived concept enters the pack.
+    selected: list[str] = []
+    for result in direct_hits:
+        if result["concept_id"] not in selected:
+            selected.append(result["concept_id"])
+    if link_depth > 0:
+        for result in neighborhood:
+            if len(selected) >= max_concepts:
+                break
+            if result["concept_id"] not in selected:
+                selected.append(result["concept_id"])
+        for result in direct_hits:
+            if len(selected) >= max_concepts:
+                break
+            for related in related_concepts(index, result["concept_id"], depth=link_depth, max_results=max_concepts).get("related", []):
+                if related["concept_id"] not in selected:
+                    selected.append(related["concept_id"])
+                    if len(selected) >= max_concepts:
+                        break
+    selected = selected[:max_concepts]
 
     concepts: list[dict[str, Any]] = []
     follow_up: list[str] = []
-    for concept_id in deduped:
+    for concept_id in selected:
         concept = read_concept(index, concept_id)
         concepts.append(
             {
@@ -218,6 +251,20 @@ def prepare_answer_context(
         )
         follow_up.extend(concept.get("outlinks", []))
         follow_up.extend(concept.get("inlinks", []))
+
+    # Enforce a whole-pack excerpt budget, trimming lowest-ranked concepts first
+    # so every selected concept keeps at least a useful floor.
+    total_excerpt_chars = sum(len(item["excerpt"]) for item in concepts)
+    if concepts and total_excerpt_chars > max_total_chars:
+        floor = min(400, max_total_chars // len(concepts))
+        for item in reversed(concepts):
+            if total_excerpt_chars <= max_total_chars:
+                break
+            current = len(item["excerpt"])
+            target = max(floor, current - (total_excerpt_chars - max_total_chars))
+            if target < current:
+                item["excerpt"] = _trim(item["excerpt"], target)
+                total_excerpt_chars += len(item["excerpt"]) - current
 
     entrypoints: dict[str, Any] = {}
     if include_index:
@@ -237,19 +284,33 @@ def prepare_answer_context(
                 "excerpt": _trim(root_log.get("body", ""), 2000),
             }
 
-    follow_up_candidates = [item for item in sorted(set(follow_up)) if item not in deduped]
+    # Concept bodies already ship in `concepts`; search results report direct
+    # matches only, excerpt-free, so the same text is never packed twice.
+    search_summaries = [
+        {
+            "concept_id": result["concept_id"],
+            "title": result.get("title"),
+            "type": result.get("type"),
+            "path": result.get("path"),
+            "score": result.get("score"),
+            "reason": result.get("reason"),
+        }
+        for result in direct_hits
+    ]
+
+    follow_up_candidates = [item for item in sorted(set(follow_up)) if item not in selected]
     return {
         "bundle": index["bundle"]["alias"],
         "mode": mode,
         "blocked": False,
         "generated_at": _now_iso(),
         "source": index.get("source", {}),
-        "validation": validation,
+        "validation": validation_counts,
         "freshness": freshness_report(index),
-        "inventory": bundle_inventory(index),
+        "inventory": bundle_inventory(index, top_n=10),
         "answer_instructions": _answer_instructions(mode),
         "entrypoints": entrypoints,
-        "search_results": results,
+        "search_results": search_summaries,
         "concepts": concepts,
         "follow_up_candidates": follow_up_candidates[:max_concepts],
     }
@@ -276,8 +337,10 @@ def generate_chatgpt_usage(bundle_path: str | Path, options: dict[str, Any] | No
     bundle_rel = _bundle_relative_path(root, repo_root)
     repo_name = options.get("repo_name") or options.get("repo") or repo_root.name
     write_files = bool(options.get("write_files", False))
-    include_llms = bool(options.get("include_llms_txt", True))
-    include_registry = bool(options.get("include_registry", True))
+    # Repo-root helper files are opt-in: writing outside the bundle directory
+    # should never happen as a side effect of a bundle-scoped request.
+    include_llms = bool(options.get("include_llms_txt", False))
+    include_registry = bool(options.get("include_registry", False))
     include_agents = bool(options.get("include_agents_md", True))
 
     chatgpt = f"""# ChatGPT instructions for this OKF bundle
@@ -369,8 +432,8 @@ When a task concerns this bundle's domain or asks about knowledge covered by `{b
         "chatgpt_md": chatgpt,
         "agents_md_path": str(root / "AGENTS.md"),
         "agents_md": agents if include_agents else None,
-        "llms_txt": llms if include_llms else None,
-        "okf_registry_yaml": registry if include_registry else None,
+        "llms_txt": llms,
+        "okf_registry_yaml": registry,
         "repo_agents_md_path": str(repo_root / "AGENTS.md"),
         "repo_agents_md_snippet": repo_agents,
         "agents_md_snippet": repo_agents,

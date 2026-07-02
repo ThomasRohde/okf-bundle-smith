@@ -12,6 +12,33 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- `context` / `okf_prepare_answer_context` now ranks the full search pool,
+  separates direct matches from injected link-neighborhood entries, and fills
+  the pack with direct hits first — neighbors take only leftover slots. Weak
+  body-only matches can no longer be evicted by a well-connected hit's
+  neighborhood, and `link_depth: 0` now strictly means direct hits only: no
+  link-derived concept enters the pack.
+- Context packs are slimmer: search results list direct matches only and no
+  longer duplicate concept excerpts, validation ships as error/warning counts
+  (blocked strict packs list the blocking issues in `validation_issues`
+  instead), and the inventory is trimmed to the top 10 types/tags with
+  `type_count`/`tag_count` totals (`overview` keeps the full distribution).
+- Excerpt trimming is now exact: trimmed text never exceeds the requested
+  character limit (ellipsis included), so `max_total_chars` is a hard bound
+  even for degenerate budgets.
+- New `max_total_chars` option (CLI `--max-total-chars`, default 24000) budgets
+  the sum of all concept excerpts in a context pack, trimming lowest-ranked
+  concepts first while keeping a per-concept floor.
+- `okf_prepare_answer_context` gained `include_index` / `include_log`, closing a
+  parity gap with the CLI's `--no-index` / `--no-log`.
+- `generate-chatgpt-usage --write` now writes only bundle-local files by
+  default. Repo-root `llms.txt` and `okf-registry.yaml` are opt-in via
+  `--llms-txt` / `--registry` (MCP: `include_llms_txt` / `include_registry`,
+  now default false); their content is always previewed in the payload.
+
 ## [0.5.0] - 2026-07-01
 
 ### Added

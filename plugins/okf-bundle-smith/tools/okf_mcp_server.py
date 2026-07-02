@@ -297,7 +297,10 @@ def _tool_schema() -> list[dict]:
                     "mode": {"type": "string", "enum": ["strict", "hybrid"], "default": "strict"},
                     "max_concepts": {"type": "integer", "default": 8},
                     "link_depth": {"type": "integer", "default": 1},
-                    "max_chars_per_concept": {"type": "integer", "default": 4000}
+                    "max_chars_per_concept": {"type": "integer", "default": 4000},
+                    "max_total_chars": {"type": "integer", "default": 24000, "description": "Budget for the sum of all concept excerpts in the pack."},
+                    "include_index": {"type": "boolean", "default": True},
+                    "include_log": {"type": "boolean", "default": True}
                 },
                 "required": ["bundle", "question"]
             }
@@ -333,8 +336,8 @@ def _tool_schema() -> list[dict]:
                     "repo_root": {"type": "string"},
                     "write_files": {"type": "boolean", "default": False},
                     "include_agents_md": {"type": "boolean", "default": True},
-                    "include_llms_txt": {"type": "boolean", "default": True},
-                    "include_registry": {"type": "boolean", "default": True}
+                    "include_llms_txt": {"type": "boolean", "default": False, "description": "With write_files, also write llms.txt at the repository root."},
+                    "include_registry": {"type": "boolean", "default": False, "description": "With write_files, also write okf-registry.yaml at the repository root."}
                 },
                 "required": ["bundle_path"]
             }
@@ -524,6 +527,9 @@ def _call_tool(name: str, arguments: dict) -> dict:
             "max_concepts": int(arguments.get("max_concepts", 8)),
             "link_depth": int(arguments.get("link_depth", 1)),
             "max_chars_per_concept": int(arguments.get("max_chars_per_concept", 4000)),
+            "max_total_chars": int(arguments.get("max_total_chars", 24000)),
+            "include_index": bool(arguments.get("include_index", True)),
+            "include_log": bool(arguments.get("include_log", True)),
         }))
 
     if name == "okf_freshness_report":
@@ -538,8 +544,8 @@ def _call_tool(name: str, arguments: dict) -> dict:
             "repo_root": arguments.get("repo_root"),
             "write_files": bool(arguments.get("write_files", False)),
             "include_agents_md": bool(arguments.get("include_agents_md", True)),
-            "include_llms_txt": bool(arguments.get("include_llms_txt", True)),
-            "include_registry": bool(arguments.get("include_registry", True)),
+            "include_llms_txt": bool(arguments.get("include_llms_txt", False)),
+            "include_registry": bool(arguments.get("include_registry", False)),
         }))
 
     if name == "okf_mcp_diagnostics":

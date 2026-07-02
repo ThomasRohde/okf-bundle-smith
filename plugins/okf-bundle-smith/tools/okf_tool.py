@@ -177,6 +177,7 @@ def cmd_context(args: argparse.Namespace) -> int:
         "max_concepts": args.max_concepts,
         "link_depth": args.link_depth,
         "max_chars_per_concept": args.max_chars_per_concept,
+        "max_total_chars": args.max_total_chars,
         "include_index": not args.no_index,
         "include_log": not args.no_log,
     }
@@ -200,8 +201,8 @@ def cmd_generate_chatgpt_usage(args: argparse.Namespace) -> int:
         "repo_root": args.repo_root,
         "write_files": args.write,
         "include_agents_md": not args.no_agents_md,
-        "include_llms_txt": not args.no_llms_txt,
-        "include_registry": not args.no_registry,
+        "include_llms_txt": args.llms_txt,
+        "include_registry": args.registry,
     }
     print_json(chatgpt_usage(args.bundle_path, options=options))
     return 0
@@ -377,6 +378,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-concepts", type=int, default=8)
     p.add_argument("--link-depth", type=int, default=1)
     p.add_argument("--max-chars-per-concept", type=int, default=4000)
+    p.add_argument("--max-total-chars", type=int, default=24000, help="Budget for the sum of all concept excerpts in the pack")
     p.add_argument("--no-index", action="store_true")
     p.add_argument("--no-log", action="store_true")
     p.set_defaults(func=cmd_context)
@@ -395,8 +397,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--repo-root")
     p.add_argument("--write", action="store_true")
     p.add_argument("--no-agents-md", action="store_true", help="Do not write or return bundle-local AGENTS.md content")
-    p.add_argument("--no-llms-txt", action="store_true")
-    p.add_argument("--no-registry", action="store_true")
+    p.add_argument("--llms-txt", action="store_true", help="With --write, also write llms.txt at the repository root")
+    p.add_argument("--registry", action="store_true", help="With --write, also write okf-registry.yaml at the repository root")
     p.set_defaults(func=cmd_generate_chatgpt_usage)
 
     p = sub.add_parser("mcp-diagnostics", help="Report the bundled okf-tools MCP configuration and manual probe command")

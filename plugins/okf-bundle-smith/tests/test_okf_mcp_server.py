@@ -113,7 +113,9 @@ class OkfMcpServerTests(unittest.TestCase):
 
                 context = handle({
                     "jsonrpc": "2.0", "id": 6, "method": "tools/call",
-                    "params": {"name": "okf_prepare_answer_context", "arguments": {"bundle": bundle, "question": "What is this?"}},
+                    "params": {"name": "okf_prepare_answer_context", "arguments": {
+                        "bundle": bundle, "question": "What is this?", "max_total_chars": 10000,
+                    }},
                 })
                 self.assertIn("answer_instructions", context["result"]["content"][0]["text"])  # type: ignore[index]
                 self.assertIn("inventory", context["result"]["content"][0]["text"])  # type: ignore[index]
