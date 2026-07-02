@@ -1,6 +1,6 @@
 {
   "name": "okf-bundle-smith",
-  "version": "0.5.0+codex.20260702053232",
+  "version": "0.5.0+codex.20260702055750",
   "description": "Create, enrich, validate, repair, consume, visualize, and package Open Knowledge Format bundles from web, repository, GitHub, and enterprise sources, including parallel subagent authoring for large bundles.",
   "author": {
     "name": "OKF Bundle Smith maintainers"
